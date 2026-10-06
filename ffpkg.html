@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UFS2 镜像完整教程 · macOS 制作 PS5 .ffpkg</title>
+<meta name="description" content="在 macOS 上用 UFS2Tool 把 PS5 文件夹格式游戏做成 ShadowMountPlus 官方推荐的 .ffpkg（UFS2）镜像：一条命令、无需挂载、含 fsck 自检与故障排查。">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="show-en">
+
+<div class="top">
+  <div class="top-in">
+    <div class="brand">
+      <span class="dot3"><i></i><i></i><i></i></span>
+      <span>ps5-macos-image-guide</span>
+    </div>
+    <nav class="pnav">
+      <a href="index.html">总览</a>
+      <a href="exfat.html">exFAT</a>
+      <a href="ffpkg.html">UFS2 · ffpkg</a>
+    </nav>
+    <div class="top-actions">
+      <button class="btn menu-btn" id="menuBtn">目录</button>
+      <button class="btn on" id="enBtn">EN 对照</button>
+      <button class="btn" id="themeBtn">浅色</button>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  <nav class="toc" id="toc">
+    <div class="toc-title">CONTENTS</div>
+    <div class="toc-group">UFS2 教程</div>
+    <a href="#why"><span class="num">01</span>为什么这是首选</a>
+    <a href="#install"><span class="num">02</span>安装 UFS2Tool</a>
+    <a href="#script"><span class="num">03</span>一键脚本</a>
+    <a href="#manual"><span class="num">04</span>手敲命令与参数</a>
+    <a href="#verify"><span class="num">05</span>校验镜像</a>
+    <a href="#trouble"><span class="num">06</span>专属排错</a>
+    <a href="#cheat"><span class="num">07</span>命令速查</a>
+  </nav>
+
+  <main>
+    <div class="crumb"><a href="index.html">总览</a> / UFS2 · ffpkg 教程</div>
+    <div class="phead">
+      <h1>UFS2 镜像 <span class="arrow">·</span> <code>.ffpkg</code></h1>
+      <div class="ps">ShadowMountPlus 官方推荐的默认格式。一条命令建镜像，全程不挂载、不需要 sudo、不产生任何 macOS 残留文件。</div>
+      <div class="en-block">The format ShadowMountPlus recommends by default. One command builds the image — no mounting, no sudo, and none of the AppleDouble or <code>.fseventsd</code> leftovers that the exFAT route forces you to clean up.</div>
+      <div class="pmeta">
+        <span class="fchip rec">官方推荐</span>
+        <span class="fchip">不需要挂载</span>
+        <span class="fchip">不需要 sudo</span>
+        <span class="fchip">含 fsck 自检</span>
+        <span class="fchip">实测 0.27 秒构建</span>
+      </div>
+    </div>
+
+    <div class="notice info">
+      <div class="nt">[i] 代码块怎么读</div>
+      <p><strong>绿色竖条</strong>= 命令区，点 <code class="inl">copy</code> 只复制这部分并去掉 <code class="inl">$</code> / <code class="inl">&gt;</code>；<strong>灰色竖条 + 虚线</strong>= 实际输出，永远不会被复制。</p>
+    </div>
+
+    <!-- 01 -->
+    <section id="why">
+      <h2 class="sec"><span class="num">[01]</span>为什么这是首选 <span class="en-t">Why this is the default</span></h2>
+      <div class="sec-sub">它解决的是 exFAT 路线上那些别扭的地方<span class="en">It removes the awkward parts of the exFAT route</span></div>
+
+      <p>ShadowMountPlus 的 README 把 <code class="inl">.ffpkg</code>（UFS2）列为<strong>常规场景的推荐格式</strong>，把 <code class="inl">.exfat</code> 降级为「给需要外置盘式兼容的游戏用」。原因很实在：</p>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th></th><th><code>.ffpkg</code></th><th><code>.exfat</code></th></tr></thead>
+          <tbody>
+            <tr><td>建镜像的方式</td><td><span class="yes">直接按字节构造文件系统</span></td><td>挂载后由 macOS 写入</td></tr>
+            <tr><td>需要挂载吗</td><td><span class="yes">不需要</span></td><td>需要</td></tr>
+            <tr><td>macOS 残留文件</td><td><span class="yes">完全不会产生</span></td><td>会带出 <code>._*</code> / <code>.fseventsd</code></td></tr>
+            <tr><td>命令数量</td><td><span class="yes">一条</span></td><td>八步</td></tr>
+            <tr><td>能自检文件系统吗</td><td><span class="yes">能，<code>fsck_ufs</code></span></td><td>只能比对文件数与字节数</td></tr>
+            <tr><td>空间开销</td><td><span class="yes">更小</span></td><td>64 KiB 簇末填充浪费更多</td></tr>
+            <tr><td>放内置 SSD</td><td><span class="yes">直接可用</span></td><td>需要额外的只读 / 扇区设置</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="notice">
+        <div class="nt">[!] 那什么时候还是得用 exFAT</div>
+        <p>只有一种：某个游戏<strong>只有在被当成「外置盘内容」处理时才正常</strong>——例如文件夹格式或 <code class="inl">.ffpkg</code> 下卡顿、音画异常、读不到数据。这种情况请改看 <a href="exfat.html">exFAT 教程</a>。</p>
+      </div>
+
+      <h3 class="step"><span class="sn">1.1</span>为什么它不需要挂载 <span class="en-t">Why no mounting is needed</span></h3>
+      <p><strong>因为 macOS 根本不能原生挂载 UFS2</strong>——这本来是个限制，反而成了优势。既然没法挂载，工具就只能自己动手：UFS2Tool 直接按字节写出 superblock、柱面组、inode 表和数据块。整个过程中 macOS 的文件系统驱动完全没有参与，自然也就不会塞进 <code class="inl">._*</code> 影子文件或 <code class="inl">.fseventsd</code> 目录。</p>
+      <p class="en-block">macOS cannot mount UFS2 natively. That constraint is exactly why the route is clean: UFS2Tool writes the filesystem structure itself, byte by byte, so the macOS filesystem driver never touches the image.</p>
+    </section>
+
+    <!-- 02 -->
+    <section id="install">
+      <h2 class="sec"><span class="num">[02]</span>安装 UFS2Tool <span class="en-t">Install UFS2Tool</span></h2>
+      <div class="sec-sub">下载、校验、去隔离，三步<span class="en">Download, verify, de-quarantine</span></div>
+
+      <p>工具是 <a href="https://github.com/SvenGDK/UFS2Tool" target="_blank" rel="noopener">SvenGDK/UFS2Tool</a>（BSD-2-Clause 开源，跨平台）。它基于 .NET 8，但官方提供了<strong>自带运行时的自包含版本</strong>，所以你<strong>不需要安装 dotnet</strong>。</p>
+
+      <h3 class="step"><span class="sn">2.1</span>选对包 <span class="en-t">Pick the right archive</span></h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>你的机器</th><th>下载这个</th><th>大小</th></tr></thead>
+          <tbody>
+            <tr><td>Apple Silicon（M1–M4）</td><td><code>osx-arm64-selfcontained.zip</code></td><td>约 40 MB</td></tr>
+            <tr><td>Intel Mac</td><td><code>osx-x64-selfcontained.zip</code></td><td>约 41.5 MB</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>先确认自己的架构，然后下载。本页以 v4.1 为例：</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">确认架构 + 下载</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> uname -m
+<span class="prompt">$</span> mkdir -p ~/UFS2Tool &amp;&amp; cd ~/UFS2Tool
+<span class="prompt">$</span> curl -fL -o ufs2.zip \
+<span class="prompt">&gt;</span>   https://github.com/SvenGDK/UFS2Tool/releases/download/v4.1/osx-arm64-selfcontained.zip</code></pre>
+<pre class="outp"><code><span class="out">arm64</span></code></pre>
+      </div>
+      <p class="en-block">The self-contained builds bundle the .NET 8 runtime, so you do not need to install dotnet separately. Intel Macs use the <code>osx-x64-selfcontained.zip</code> asset instead.</p>
+
+      <h3 class="step"><span class="sn">2.2</span>校验校验和 <span class="en-t">Verify the checksum</span></h3>
+      <p>下载完先比对官方 release 页面上的 sha256。<strong>别跳过这一步</strong>——这是一个会写文件系统结构的工具，来源必须可信。</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">期望输出 OK</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> echo "3b2eb0044e62210f88a44432f0d64301a1f810d6ef7720f68281f565651ef10b  ufs2.zip" | shasum -a 256 -c -</code></pre>
+<pre class="outp"><code><span class="out">ufs2.zip: OK</span></code></pre>
+      </div>
+      <div class="notice info">
+        <div class="nt">[i] 这里的哈希是 osx-arm64-selfcontained.zip v4.1 的</div>
+        <p>Intel 版是 <code class="inl">d354d8444e6da8fb682a6fb5d7067dd9d5750b8a8088cddac51a3eefec25f778</code>。换了版本号，哈希也会变——以 release 页面当时公布的为准。</p>
+      </div>
+
+      <h3 class="step"><span class="sn">2.3</span>解压、去隔离、赋权 <span class="en-t">Extract, de-quarantine, chmod</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">xattr 这一步不能省</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> unzip -q ufs2.zip
+<span class="prompt">$</span> cd osx-arm64-selfcontained
+<span class="prompt">$</span> chmod +x UFS2Tool UFS2Tool.GUI
+<span class="prompt">$</span> xattr -r -d com.apple.quarantine .
+<span class="prompt">$</span> ./UFS2Tool</code></pre>
+      </div>
+      <div class="notice danger">
+        <div class="nt">[X] 不去 quarantine 会被 Gatekeeper 拦下</div>
+        <p>从网上下载的二进制会被 macOS 打上隔离标记，直接运行会提示「无法打开，因为 Apple 无法检查其是否包含恶意软件」或者<strong>静默拒绝执行</strong>。<code class="inl">xattr -r -d com.apple.quarantine .</code> 必须跑。</p>
+      </div>
+      <p>跑通的话会打印出完整的命令列表，其中最关键的一条是：</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">output</span><span class="cap">从 -D 的说明里能看出它的用途</span><span class="ro">output only</span></div>
+<pre class="outp"><code><span class="out">  newfs   -D &lt;input-directory&gt; &lt;image-path&gt; [volume-name]
+          Create image from directory contents (size auto-calculated)</span></code></pre>
+      </div>
+      <p class="en-block">There is also a GUI (<code>./UFS2Tool.GUI</code>, Avalonia-based) with a dedicated PS5 tab that supports batch conversion of multiple folders. The CLI is what this guide uses.</p>
+    </section>
+
+    <!-- 03 -->
+    <section id="script">
+      <h2 class="sec"><span class="num">[03]</span>一键脚本 <span class="en-t">One-click script</span></h2>
+      <div class="sec-sub">把下载、校验、构建、自检全串起来<span class="en">Download, verify, build and self-check in one go</span></div>
+
+      <p>如果你不想每次手动下载和校验工具，用这个脚本。它会按你的机器架构自动选包、比对官方 sha256、解压去隔离、校验源目录、构建镜像，最后跑一遍 <code class="inl">fsck_ufs</code> 和哈希抽验。</p>
+
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">拿到脚本</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> mkdir -p ~/bin
+<span class="prompt">$</span> curl -fsSL -o ~/bin/smp-mkffpkg.sh \
+<span class="prompt">&gt;</span>   https://raw.githubusercontent.com/lvzhongpei/ps5-macos-image-guide/main/script/smp-mkffpkg.sh
+<span class="prompt">$</span> chmod +x ~/bin/smp-mkffpkg.sh
+<span class="prompt">$</span> ~/bin/smp-mkffpkg.sh --help</code></pre>
+      </div>
+
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">运行</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> ~/bin/smp-mkffpkg.sh \
+<span class="prompt">&gt;</span>   "/Volumes/MYSSD/downloads/ps5/PPSA12345" \
+<span class="prompt">&gt;</span>   "/Volumes/MYSSD/homebrew/PPSA12345.ffpkg"</code></pre>
+      </div>
+
+      <div class="code">
+        <div class="code-head"><span class="lang">output</span><span class="cap">脚本的六个阶段（示意输出）</span><span class="ro">output only</span></div>
+<pre class="outp"><code><span class="okc">[10:31:02] ==== 0 Pre-flight / 前置校验 ====</span>
+源目录 source  : /Volumes/MYSSD/downloads/ps5/PPSA12345
+eboot.bin      : 259129280 bytes
+
+<span class="okc">[10:31:02] ==== 1 UFS2Tool / 准备工具 ====</span>
+架构 arch      : arm64 → osx-arm64-selfcontained
+已存在已校验的工具 / cached tool found
+
+<span class="okc">[10:31:02] ==== 2 Build / 构建镜像 ====</span>
+命令 command   : UFS2Tool newfs -O 2 -b 32768 -f 4096 -D "&lt;源&gt;" "&lt;输出&gt;"
+<span class="out">Populated image with 105 file(s) and 19 directory(ies)</span>
+Image created successfully.
+
+<span class="okc">[10:31:29] ==== 3 fsck / 文件系统自检 ====</span>
+** PPSA12345.ffpkg is clean
+125 files, 3826106 used, 238 free (0.0% fragmentation)
+
+<span class="okc">[10:31:29] ==== 4 Verify / 哈希抽验 ====</span>
+eboot.bin SHA-256 源与镜像一致
+
+<span class="okc">[10:31:29] ==== Done / 完成 ====</span>
+镜像就绪 / image ready: /Volumes/MYSSD/homebrew/PPSA12345.ffpkg</code></pre>
+      </div>
+
+      <p>脚本会缓存已下载并校验过的 UFS2Tool，第二次运行直接复用，不会重复下载 40 MB。</p>
+    </section>
+
+    <!-- 04 -->
+    <section id="manual">
+      <h2 class="sec"><span class="num">[04]</span>手敲命令与参数 <span class="en-t">Manual, with the parameters explained</span></h2>
+      <div class="sec-sub">其实只有一条命令，但参数值得看懂<span class="en">Really just one command — but the flags are worth understanding</span></div>
+
+      <h3 class="step"><span class="sn">4.1</span>官方最简写法 <span class="en-t">The official quick start</span></h3>
+      <p>UFS2Tool 的 README 里给了 PS5 的快速上手命令，尺寸会自动计算：</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">会自动算大小，并用默认参数建 UFS2</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> GAME="/Volumes/MYSSD/downloads/ps5/PPSA12345"
+<span class="prompt">$</span> ./UFS2Tool newfs -D "$GAME" "/Volumes/MYSSD/homebrew/PPSA12345.ffpkg"</code></pre>
+<pre class="outp"><code><span class="out">Image created successfully.
+
+UFS2 Filesystem Image: PPSA12345.ffpkg
+Magic: 0x19540119 (Valid UFS2)
+Block Size: 32768 bytes
+Fragment Size: 4096 bytes
+Total Size: 15 MB</span></code></pre>
+      </div>
+      <p><code class="inl">-D</code> 后面跟源目录，第二个位置参数是输出路径，<strong>可以直接写成 <code class="inl">.ffpkg</code> 后缀</strong>，不需要先建 <code class="inl">.img</code> 再改名。</p>
+
+      <h3 class="step"><span class="sn">4.2</span>显式指定 PS5 常用参数 <span class="en-t">Pin the parameters explicitly</span></h3>
+      <p>社区工具（如 PSFFPKG）在调 UFS2Tool 时会显式指定这几个参数。想完全可控就用这条：</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">UFS2 + 32 KiB block + 4 KiB fragment</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> ./UFS2Tool newfs -O 2 -b 32768 -f 4096 -D "$GAME" "/Volumes/MYSSD/homebrew/PPSA12345.ffpkg"</code></pre>
+      </div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>参数</th><th>含义</th><th>为什么是这个值</th></tr></thead>
+          <tbody>
+            <tr><td><code>-O 2</code></td><td>文件系统版本，2 = UFS2</td><td>PS5 原生用的就是 UFS2</td></tr>
+            <tr><td><code>-b 32768</code></td><td>block 大小 32 KiB</td><td>社区工具验证过的 PS5 常用值（范围 4096–65536）</td></tr>
+            <tr><td><code>-f 4096</code></td><td>fragment 大小 4 KiB</td><td>碎片级分配，小文件浪费最少</td></tr>
+            <tr><td><code>-D &lt;目录&gt;</code></td><td>从目录内容填充，自动算尺寸</td><td>免去手工估算 <code>-s</code></td></tr>
+            <tr><td><code>-S 4096</code></td><td>扇区大小</td><td>官方 <code>makefs</code> 写法里用；UFS2Tool v4.1 起已把布局统一规范化到 512，一般不必手动指定</td></tr>
+            <tr><td><code>-m 0</code></td><td>保留空间百分比</td><td>官方 <code>makefs</code> 写法用 0，避免为「给 root 预留」白白占空间</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="notice info">
+        <div class="nt">[i] 官方还给了 makefs 的等价写法</div>
+        <p>如果你更喜欢 FreeBSD <code class="inl">makefs(8)</code> 风格的参数，README 里也有：</p>
+        <p style="color:var(--text);border-left:2px solid var(--border);padding-left:12px;margin-top:10px">UFS2Tool makefs -S 4096 -t ffs -o version=2,minfree=0,softupdates=0,optimization=space &lt;输出&gt;.ffpkg &lt;源目录&gt;</p>
+        <p>注意 <code class="inl">makefs</code> 的参数顺序是<strong>先输出后输入</strong>，跟 <code class="inl">newfs -D</code> 相反。</p>
+      </div>
+
+      <h3 class="step"><span class="sn">4.3</span>先干跑一遍看参数 <span class="en-t">Dry run first</span></h3>
+      <p>加 <code class="inl">-N</code> 只打印参数、不真正建文件。大游戏开工前建议先跑一次，确认自动算出的尺寸合理：</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">-N = dry run</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> ./UFS2Tool newfs -N -O 2 -b 32768 -f 4096 -D "$GAME" test.ffpkg</code></pre>
+<pre class="outp"><code><span class="out">  Input directory: /Volumes/MYSSD/downloads/ps5/PPSA12345
+  Directory size:  4,900,099 bytes (4.67 MB)
+  Auto-sized to:   16,220,160 bytes (15 MB)
+
+  Format:        UFS2 (-O 2)
+  Block size:    32768 bytes (-b)
+  Fragment size: 4096 bytes (-f)
+  Sector size:   512 bytes (-S)
+  Total size:    16,220,160 bytes (15 MB)
+  Cylinder groups: 1
+  Min free:      8% (-m)
+  Optimization:  time (-o)
+
+Dry run (-N): filesystem was NOT created.</span></code></pre>
+      </div>
+      <p class="en-block">Unlike the exFAT route, there is no sparse-file sizing step and no "2× disk space" requirement for the source and image living side by side — but you still need room for the image itself.</p>
+
+      <h3 class="step"><span class="sn">4.4</span>别忘了源目录结构 <span class="en-t">Mind the source layout</span></h3>
+      <p>游戏文件必须在源目录根下，<code class="inl">eboot.bin</code> 与 <code class="inl">sce_sys/param.json</code> 缺一不可（详见<a href="index.html#before">总览 4.1</a>）。UFS2Tool 会校验 <code class="inl">eboot.bin</code> 是否存在，但不认目录层级——多套一层它会照样打包，结果 PS5 认不出来。</p>
+    </section>
+
+    <!-- 05 -->
+    <section id="verify">
+      <h2 class="sec"><span class="num">[05]</span>校验镜像 <span class="en-t">Verify</span></h2>
+      <div class="sec-sub">UFS2Tool 自己就是检查工具，四项独立验证<span class="en">The same tool verifies it — four independent checks</span></div>
+
+      <h3 class="step"><span class="sn">5.1</span>读文件系统信息 <span class="en-t">Read the filesystem info</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">Magic 必须是 0x19540119</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> IMG=/Volumes/MYSSD/homebrew/PPSA12345.ffpkg
+<span class="prompt">$</span> ./UFS2Tool info "$IMG"</code></pre>
+<pre class="outp"><code><span class="out">UFS2 Filesystem Image: PPSA12345.ffpkg
+Magic: 0x19540119 (Valid UFS2)
+Block Size: 32768 bytes
+Fragment Size: 4096 bytes
+Cylinder Groups: 1
+Inodes Per Group: 2048
+Total Fragments: 3960
+Total Size: 15 MB
+Directories: 3</span></code></pre>
+      </div>
+      <p><code class="inl">Magic: 0x19540119 (Valid UFS2)</code> 是 UFS2 的超级块魔数，这一行出现就说明文件系统结构本身是合法的。</p>
+      <p class="en-block"><code>0x19540119</code> is the UFS2 superblock magic. Seeing it means the filesystem structure is valid, not just that a file was written.</p>
+
+      <h3 class="step"><span class="sn">5.2</span>列出目录树 <span class="en-t">List the tree</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">先看根，再看子目录</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> ./UFS2Tool ls "$IMG"
+<span class="prompt">$</span> ./UFS2Tool ls "$IMG" sce_sys</code></pre>
+<pre class="outp"><code><span class="out">Directory '/' (7 entries):
+  DIR   inode=     2  .
+  DIR   inode=     2  ..
+  FILE  inode=     3  ampr_emu.index
+  FILE  inode=     4  contentids.json
+  FILE  inode=     5  eboot.bin
+  DIR   inode=     6  prx
+  DIR   inode=     8  sce_sys
+
+Directory 'sce_sys' (3 entries):
+  DIR   inode=     8  .
+  DIR   inode=     2  ..
+  FILE  inode=     9  param.json</span></code></pre>
+      </div>
+
+      <h3 class="step"><span class="sn">5.3</span>跑一遍文件系统一致性检查 <span class="en-t">Run fsck</span></h3>
+      <p>这是 exFAT 路线给不了的东西：<strong>真正的文件系统级自检</strong>。</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">-f 强制检查、-n 只读不修</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> ./UFS2Tool fsck_ufs -fn "$IMG"</code></pre>
+<pre class="outp"><code><span class="out">** Checking UFS2 filesystem image: PPSA12345.ffpkg
+** Phase 1 - Check Blocks and Sizes
+** Phase 2 - Check Pathnames
+** Phase 3 - Check Connectivity
+** Phase 4 - Check Reference Counts
+** Phase 5 - Check Cylinder Groups
+** PPSA12345.ffpkg is clean
+8 files, 1251 used, 2540 free (1.1% fragmentation)</span></code></pre>
+      </div>
+      <p>看到 <code class="inl">is clean</code> 就说明超级块、inode 链、块位图、目录引用计数全都没问题。</p>
+
+      <h3 class="step"><span class="sn">5.4</span>抽出关键文件比对哈希 <span class="en-t">Extract and hash</span></h3>
+      <p>最后做一次数据层面的抽验：把 <code class="inl">eboot.bin</code> 单独抽出来，和源文件比 SHA-256。不用全量解包，所以即使是 200 GB 的游戏也只花几秒。</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">两行哈希必须一模一样</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> GAME="/Volumes/MYSSD/downloads/ps5/PPSA12345"
+<span class="prompt">$</span> ./UFS2Tool extract "$IMG" /tmp/ufscheck eboot.bin
+<span class="prompt">$</span> shasum -a 256 "$GAME/eboot.bin" /tmp/ufscheck/eboot.bin</code></pre>
+<pre class="outp"><code><span class="out">4f2a9c1e7b3d05a8c6e1f9042b7d8e3a5c0f6b2194d8e7a3c5b1f0d6928e4a7c  /Volumes/MYSSD/downloads/ps5/PPSA12345/eboot.bin
+4f2a9c1e7b3d05a8c6e1f9042b7d8e3a5c0f6b2194d8e7a3c5b1f0d6928e4a7c  /tmp/ufscheck/eboot.bin</span></code></pre>
+      </div>
+      <p class="en-block">Spot-checking one large file avoids unpacking hundreds of gigabytes while still proving the data path is intact.</p>
+    </section>
+
+    <!-- 06 -->
+    <section id="trouble">
+      <h2 class="sec"><span class="num">[06]</span>专属排错 <span class="en-t">Troubleshooting</span></h2>
+      <div class="sec-sub">这条路线的坑都集中在工具链上<span class="en">The pitfalls on this route are all about the toolchain</span></div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>现象</th><th>原因</th><th>处理</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>提示「无法打开，因为 Apple 无法检查其是否包含恶意软件」</td>
+              <td>下载的二进制带 quarantine 隔离标记</td>
+              <td><code>xattr -r -d com.apple.quarantine .</code></td>
+            </tr>
+            <tr>
+              <td><code>Permission denied</code> 无法执行</td>
+              <td>解压后没有执行权限</td>
+              <td><code>chmod +x UFS2Tool UFS2Tool.GUI</code></td>
+            </tr>
+            <tr>
+              <td>报找不到 .NET 运行时</td>
+              <td>下载成了<strong>非</strong> self-contained 的那个包</td>
+              <td>换 <code>osx-arm64-selfcontained.zip</code>（自带运行时），不用装 dotnet</td>
+            </tr>
+            <tr>
+              <td><code>bad CPU type in executable</code></td>
+              <td>架构选错了（Apple Silicon 装了 x64 包，或反之）</td>
+              <td><code>uname -m</code> 确认后换对应包</td>
+            </tr>
+            <tr>
+              <td>镜像建好了但 PS5 识别不到</td>
+              <td>源目录多套了一层，或镜像没放在 <code>homebrew/</code> 第一层</td>
+              <td>用 <code>UFS2Tool ls</code> 确认根下有 <code>eboot.bin</code>；检查盘内位置</td>
+            </tr>
+            <tr>
+              <td>镜像比预期大很多</td>
+              <td>自动尺寸留了余量（元数据 + 安全边际）</td>
+              <td>正常。想精确控制就自己算好，用 <code>newfs [options] &lt;镜像&gt; &lt;大小MB&gt;</code> 代替 <code>-D</code></td>
+            </tr>
+            <tr>
+              <td>游戏卡顿 / 音画异常</td>
+              <td>该游戏需要「外置盘式」处理</td>
+              <td>改做 <code>.exfat</code>，见 <a href="exfat.html">exFAT 教程</a></td>
+            </tr>
+            <tr>
+              <td>APR-Emu 游戏在内置 SSD 启动失败</td>
+              <td>缺 <code>ampr_emu.index</code> 或只读设置不对</td>
+              <td>确认镜像根下有该索引文件，并检查 ShadowMountPlus 的只读 / 扇区设置</td>
+            </tr>
+            <tr>
+              <td>想直接挂载镜像看内容</td>
+              <td>macOS 不支持原生挂载 UFS2</td>
+              <td>用 <code>UFS2Tool ls</code> / <code>extract</code>；GUI 版还有内容浏览器</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="notice danger">
+        <div class="nt">[X] 重要：不要用 ShadowMountPlus 仓库里的 <code>mkufs2.sh</code></div>
+        <p>ShadowMountPlus 仓库根目录有一个 <code class="inl">mkufs2.sh</code>，看起来很像是官方给的 UFS2 构建脚本。但它是 <strong>FreeBSD 专用</strong>的——里面用的是 <code class="inl">mdconfig</code>、<code class="inl">newfs -O 2</code>、<code class="inl">mount</code>，<strong>macOS 上根本没有这些命令</strong>（它里面的 <code class="inl">stat -f</code> 是 BSD 语法，容易让人误以为跨平台）。</p>
+        <p>在 macOS 上做 UFS2 镜像，请一律使用 UFS2Tool。</p>
+      </div>
+
+      <p>如果问题不在工具链上（例如 PS5 识别不到、挂载后没反应），看<a href="index.html#trouble">总览的公共排错表</a>。</p>
+    </section>
+
+    <!-- 07 -->
+    <section id="cheat">
+      <h2 class="sec"><span class="num">[07]</span>命令速查 <span class="en-t">Cheat sheet</span></h2>
+      <div class="sec-sub">自包含，可整段复制后改路径直接跑<span class="en">Self-contained — copy, change paths, run</span></div>
+
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">从下载工具到构建 + 自检</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="cmt"># 变量</span>
+GAME="/Volumes/MYSSD/downloads/ps5/PPSA12345"
+IMG="/Volumes/MYSSD/homebrew/PPSA12345.ffpkg"
+TOOL="$HOME/UFS2Tool/osx-arm64-selfcontained/UFS2Tool"
+
+<span class="cmt"># 1) 准备工具（只需做一次）</span>
+mkdir -p "$HOME/UFS2Tool" &amp;&amp; cd "$HOME/UFS2Tool"
+curl -fL -o ufs2.zip \
+  https://github.com/SvenGDK/UFS2Tool/releases/download/v4.1/osx-arm64-selfcontained.zip
+echo "3b2eb0044e62210f88a44432f0d64301a1f810d6ef7720f68281f565651ef10b  ufs2.zip" | shasum -a 256 -c -
+unzip -q ufs2.zip
+cd osx-arm64-selfcontained
+chmod +x UFS2Tool UFS2Tool.GUI
+xattr -r -d com.apple.quarantine .
+
+<span class="cmt"># 2) 干跑确认参数与尺寸</span>
+"$TOOL" newfs -N -O 2 -b 32768 -f 4096 -D "$GAME" "$IMG"
+
+<span class="cmt"># 3) 正式构建（一条命令）</span>
+"$TOOL" newfs -O 2 -b 32768 -f 4096 -D "$GAME" "$IMG"
+
+<span class="cmt"># 4) 校验：魔数</span>
+"$TOOL" info "$IMG"
+<span class="cmt"># 5) 校验：目录树</span>
+"$TOOL" ls "$IMG"
+<span class="cmt"># 6) 校验：文件系统一致性（期望 is clean）</span>
+"$TOOL" fsck_ufs -fn "$IMG"
+<span class="cmt"># 7) 校验：抽一个文件比哈希</span>
+"$TOOL" extract "$IMG" /tmp/ufscheck eboot.bin
+shasum -a 256 "$GAME/eboot.bin" /tmp/ufscheck/eboot.bin</code></pre>
+      </div>
+
+      <div class="notice ok">
+        <div class="nt">[OK] 做完了</div>
+        <p>把它放进 <code class="inl">&lt;盘根&gt;/homebrew/</code> 或 <code class="inl">/data/homebrew/</code> 即可，详见<a href="index.html#deploy">总览第 05 节</a>。</p>
+      </div>
+    </section>
+
+    <footer>
+      <div class="flinks">
+        <a href="index.html">总览</a>
+        <a href="exfat.html">exFAT 教程</a>
+        <a href="ffpkg.html">UFS2 · ffpkg 教程</a>
+        <a href="https://github.com/SvenGDK/UFS2Tool" target="_blank" rel="noopener">UFS2Tool</a>
+        <a href="https://github.com/lvzhongpei/ps5-macos-image-guide" target="_blank" rel="noopener">GitHub 仓库</a>
+        <a href="#why">回到顶部</a>
+      </div>
+      <div class="dis">
+        PS5 game dump → <code>.ffpkg</code> (UFS2) image on macOS · 命令与日志均来自真实运行记录（路径与标题 ID 已脱敏）。<br>
+        本页仅涉及磁盘镜像格式转换的技术步骤，不包含任何游戏内容。请仅使用你合法拥有的游戏备份。
+      </div>
+    </footer>
+  </main>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

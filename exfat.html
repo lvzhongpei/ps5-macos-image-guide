@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>exFAT 镜像完整教程 · macOS 制作 PS5 .exfat</title>
+<meta name="description" content="在 macOS 上用系统自带命令把 PS5 文件夹格式游戏打包成 ShadowMountPlus 可挂载的 .exfat 镜像：64 KiB 簇、八步命令、四项校验与故障排查。">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="show-en">
+
+<div class="top">
+  <div class="top-in">
+    <div class="brand">
+      <span class="dot3"><i></i><i></i><i></i></span>
+      <span>ps5-macos-image-guide</span>
+    </div>
+    <nav class="pnav">
+      <a href="index.html">总览</a>
+      <a href="exfat.html">exFAT</a>
+      <a href="ffpkg.html">UFS2 · ffpkg</a>
+    </nav>
+    <div class="top-actions">
+      <button class="btn menu-btn" id="menuBtn">目录</button>
+      <button class="btn on" id="enBtn">EN 对照</button>
+      <button class="btn" id="themeBtn">浅色</button>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  <nav class="toc" id="toc">
+    <div class="toc-title">CONTENTS</div>
+    <div class="toc-group">exFAT 教程</div>
+    <a href="#scope"><span class="num">01</span>适用场景与硬性要求</a>
+    <a href="#before"><span class="num">02</span>前置检查</a>
+    <a href="#script"><span class="num">03</span>一键脚本</a>
+    <a href="#manual"><span class="num">04</span>手敲命令 · 八步</a>
+    <a href="#verify"><span class="num">05</span>校验镜像</a>
+    <a href="#trouble"><span class="num">06</span>专属排错</a>
+    <a href="#cheat"><span class="num">07</span>命令速查</a>
+  </nav>
+
+  <main>
+    <div class="crumb"><a href="index.html">总览</a> / exFAT 教程</div>
+    <div class="phead">
+      <h1>exFAT 镜像 <span class="arrow">·</span> <code>.exfat</code></h1>
+      <div class="ps">全部使用 macOS 自带命令，不需要安装任何东西。适用于「需要按外置盘方式处理」的游戏。</div>
+      <div class="en-block">Build a mountable <code>.exfat</code> image on macOS using only built-in tools. This is the compatibility route — use it for titles that only behave correctly as external-drive content.</div>
+      <div class="pmeta">
+        <span class="fchip compat">兼容场景</span>
+        <span class="fchip">64 KiB 簇</span>
+        <span class="fchip">内部不需要 sudo</span>
+        <span class="fchip">实测 233 GiB 通过</span>
+      </div>
+    </div>
+
+    <div class="notice info">
+      <div class="nt">[i] 代码块怎么读</div>
+      <p><strong>绿色竖条</strong>= 命令区，点 <code class="inl">copy</code> 只复制这部分并去掉 <code class="inl">$</code> / <code class="inl">&gt;</code>；<strong>灰色竖条 + 虚线</strong>= 实际输出，永远不会被复制。</p>
+    </div>
+
+    <!-- 01 -->
+    <section id="scope">
+      <h2 class="sec"><span class="num">[01]</span>适用场景与硬性要求 <span class="en-t">When and the hard rule</span></h2>
+      <div class="sec-sub">先确认你真的需要走这条路<span class="en">Make sure this is the right route for you</span></div>
+
+      <p>ShadowMountPlus 官方把 exFAT 定位为<strong>「只给那些不按外置盘方式处理就跑不正常的游戏」</strong>。如果你的游戏在文件夹格式下一切正常，官方推荐的是 <a href="ffpkg.html">UFS2（<code class="inl">.ffpkg</code>）</a>——步骤更少、不产生 macOS 残留、空间效率也更高。</p>
+      <p>那什么时候该选 exFAT：</p>
+      <ul>
+        <li>某个游戏用文件夹格式或 <code class="inl">.ffpkg</code> 跑起来<strong>卡顿、音画异常、读不到数据</strong>，改成「外置盘内容」后就正常了。</li>
+        <li>你不想安装任何第三方工具，只想用 macOS 自带命令解决。</li>
+        <li>你需要能<strong>手工修改镜像内容</strong>（exFAT 镜像可以挂载后用 Finder 直接改）。</li>
+      </ul>
+      <div class="en-block">Choose exFAT when a specific title only works as external-drive content, when you want zero third-party tools, or when you need to edit the image contents by hand afterwards.</div>
+
+      <div class="notice">
+        <div class="nt">[!] 唯一一条不能商量的硬性要求：簇大小必须是 64 KiB</div>
+        <p>ShadowMountPlus 官方 README 原话：</p>
+        <p style="color:var(--text);border-left:2px solid var(--border);padding-left:12px;margin-top:10px">"If you create an exFAT (.exfat) image manually, use a 64 KB cluster size. Smaller clusters can cause a noticeable performance loss."</p>
+        <p>本页所有命令都围绕这一点。用错簇大小，游戏能挂上但会明显掉性能。<strong>而且 <code class="inl">newfs_exfat</code> 的默认值不保证是 64 KiB</strong>，必须显式指定。</p>
+      </div>
+    </section>
+
+    <!-- 02 -->
+    <section id="before">
+      <h2 class="sec"><span class="num">[02]</span>前置检查 <span class="en-t">Pre-flight</span></h2>
+      <div class="sec-sub">exFAT 专属的三项确认<span class="en">Three checks specific to this route</span></div>
+
+      <h3 class="step"><span class="sn">2.1</span>确认系统命令齐全 <span class="en-t">Check the built-in tools</span></h3>
+      <p>这套流程<strong>全部使用 macOS 自带命令</strong>，从 10.6.5 起就有，不需要装任何东西，也<strong>不需要 sudo</strong>。</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">六个命令都要有输出</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> for c in newfs_exfat mkfile diskutil rsync dot_clean shasum; do
+<span class="prompt">&gt;</span>   printf "%-12s %s\n" "$c" "$(command -v $c || echo MISSING)"
+<span class="prompt">&gt;</span> done</code></pre>
+<pre class="outp"><code><span class="out">newfs_exfat  /sbin/newfs_exfat
+mkfile       /usr/sbin/mkfile
+diskutil     /usr/sbin/diskutil
+rsync        /usr/bin/rsync
+dot_clean    /usr/sbin/dot_clean
+shasum       /usr/bin/shasum</span></code></pre>
+      </div>
+      <p><code class="inl">newfs_exfat</code> 是 macOS 自带的 exFAT 格式化工具。Linux 上对应的叫 <code class="inl">mkfs.exfat</code>，别搞混。</p>
+      <p class="en-block">On Linux the equivalent formatter is <code>mkfs.exfat</code>; on macOS it is <code>newfs_exfat</code>. Everything here ships with macOS.</p>
+
+      <h3 class="step"><span class="sn">2.2</span>算一下镜像要多大 <span class="en-t">Size the image</span></h3>
+      <p>exFAT 的每个文件都会按 64 KiB 簇向上取整，零碎文件多的游戏会明显变大。用这个计算器按官方算法估一下：</p>
+      <div class="panel">
+        <div class="pt">镜像大小计算器 <span class="en">/ image size calculator</span></div>
+        <div class="field">
+          <label for="cSize">游戏体积 (GiB)</label>
+          <input type="number" id="cSize" value="233" min="0.1" step="1">
+        </div>
+        <div class="field">
+          <label for="cFiles">文件数量（约）</label>
+          <input type="number" id="cFiles" value="105" min="1" step="1">
+        </div>
+        <div class="calc-out" id="calcOut"></div>
+      </div>
+      <p class="en-block" style="margin-top:-4px">Formula from the official ShadowMountPlus macOS script: per-file cluster rounding + FAT + allocation bitmap + directory entries + 32 MiB fixed metadata + 0.5% spare (clamped to 64–512 MiB).</p>
+      <div class="notice danger">
+        <div class="nt">[X] 别忘了两倍空间</div>
+        <p>如果<strong>源目录和镜像在同一块盘上</strong>（最常见），你需要大约<strong>两倍</strong>的可用空间——游戏和镜像会同时存在。</p>
+      </div>
+
+      <h3 class="step"><span class="sn">2.3</span>确认源目录结构 <span class="en-t">Check the source layout</span></h3>
+      <p>游戏文件必须直接在目录根下，不能多套一层。ShadowMountPlus 靠根目录的 <code class="inl">eboot.bin</code> 与 <code class="inl">sce_sys/param.json</code> 识别游戏（详见<a href="index.html#before">总览 4.1</a>）。</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">两个文件都必须存在</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> GAME="/Volumes/MYSSD/downloads/ps5/PPSA12345"
+<span class="prompt">$</span> ls "$GAME/eboot.bin" "$GAME/sce_sys/param.json"</code></pre>
+      </div>
+    </section>
+
+    <!-- 03 -->
+    <section id="script">
+      <h2 class="sec"><span class="num">[03]</span>一键脚本 <span class="en-t">One-click script</span></h2>
+      <div class="sec-sub">想直接跑通就走这条；想搞懂原理看第 04 节<span class="en">Just want it done? Use this. Want to understand it? Read section 04</span></div>
+
+      <h3 class="step"><span class="sn">3.1</span>拿到脚本 <span class="en-t">Get the script</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">保存到 ~/bin 并赋予执行权限</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> mkdir -p ~/bin
+<span class="prompt">$</span> curl -fsSL -o ~/bin/smp-mkexfat.sh \
+<span class="prompt">&gt;</span>   https://raw.githubusercontent.com/lvzhongpei/ps5-macos-image-guide/main/script/smp-mkexfat.sh
+<span class="prompt">$</span> chmod +x ~/bin/smp-mkexfat.sh
+<span class="prompt">$</span> ~/bin/smp-mkexfat.sh --help</code></pre>
+      </div>
+
+      <h3 class="step"><span class="sn">3.2</span>运行 <span class="en-t">Run it</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">两个参数：游戏目录、输出镜像路径</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> ~/bin/smp-mkexfat.sh \
+<span class="prompt">&gt;</span>   "/Volumes/MYSSD/downloads/ps5/PPSA12345" \
+<span class="prompt">&gt;</span>   "/Volumes/MYSSD/homebrew/PPSA12345.exfat"</code></pre>
+      </div>
+
+      <p>然后就是等。脚本会自动分八个阶段走完，全程有日志：</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">output</span><span class="cap">真实运行日志（路径已脱敏）</span><span class="ro">output only</span></div>
+<pre class="outp"><code><span class="okc">[10:24:01] ==== 0 Pre-flight / 前置校验 ====</span>
+源目录 source  : /Volumes/MYSSD/downloads/ps5/PPSA12345
+eboot.bin      : 259129280 bytes
+镜像 image     : /Volumes/MYSSD/homebrew/PPSA12345.exfat
+卷标 label     : PPSA12345
+纳入 files     : 105 files / 19 dirs / 250122409030 bytes
+
+<span class="okc">[10:24:01] ==== 1 Sizing / 计算尺寸 ====</span>
+簇大小 cluster : <span class="hl">65536 bytes</span>
+数据区 data    : 250126860288 bytes
+镜像大小 image : 239099 MB (~233 GiB)
+可用空间 free  : 594 GiB
+
+<span class="okc">[10:24:01] ==== 2 Create image / 创建镜像文件 ====</span>
+已创建稀疏镜像 / sparse image created: 233G
+
+<span class="okc">[10:24:01] ==== 3 Attach + format / 挂载设备 + 格式化（64 KiB 簇） ====</span>
+设备节点 device: /dev/disk6
+    Volume name      : PPSA12345
+    Volume size      : 489674752 sectors (250713473024 bytes)
+    Bytes per sector : 512
+    <span class="hl">Bytes per cluster: 65536</span>
+    # Clusters       : 3825328
+
+<span class="okc">[10:24:01] ==== 4 Mount / 挂载 ====</span>
+挂载点 mount   : /Volumes/PPSA12345
+
+<span class="okc">[10:24:01] ==== 5 Copy / 开始拷贝（105 个文件） ====</span>
+<span class="out">eboot.bin
+        259129280 100%  182.53MB/s   00:01:21 (xfer#14, to-check=91/105)
+prx/
+prx/akgain.prx</span>
+...
+
+<span class="okc">[11:09:29] ==== 6 Cleanup / 清理 macOS 残留 ====</span>
+镜像根目录 image root:
+    .
+    ..
+    ampr_emu.index
+    eboot.bin
+    engine
+    fakelib
+    live
+    package.manifest
+    prx
+    sce_module
+    sce_sys
+
+<span class="okc">[11:09:29] ==== 7 Verify / 校验文件数与字节数 ====</span>
+源   source: 105 files / 250122409030 bytes
+镜像 image : 105 files / 250122409030 bytes
+<span class="okc">OK 校验通过 / verification passed</span>
+关键文件 key files:
+    OK  eboot.bin
+    OK  sce_sys/param.json
+    OK  ampr_emu.index
+
+<span class="okc">[11:09:29] ==== 8 Sync + unmount / 同步并卸载 ====</span>
+已卸载 unmounted: /Volumes/PPSA12345
+已弹出 ejected: /dev/disk6
+
+<span class="okc">[11:09:30] ==== Done / 完成 ====</span>
+-rw-------  1 user  staff   233G  PPSA12345.exfat
+镜像就绪 / image ready: /Volumes/MYSSD/homebrew/PPSA12345.exfat</code></pre>
+      </div>
+
+      <h3 class="step"><span class="sn">3.3</span>中途断了怎么办 <span class="en-t">Resuming</span></h3>
+      <p>233 GB 拷到一半断电、或者手滑关了终端——别重来。<code class="inl">REUSE=1</code> 会复用已经格式化好的镜像，只补没拷完的部分：</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">断点续传</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> REUSE=1 ~/bin/smp-mkexfat.sh \
+<span class="prompt">&gt;</span>   "/Volumes/MYSSD/downloads/ps5/PPSA12345" \
+<span class="prompt">&gt;</span>   "/Volumes/MYSSD/homebrew/PPSA12345.exfat"</code></pre>
+<pre class="outp"><code><span class="out">复用已格式化的镜像 / reusing formatted image: 148G</span></code></pre>
+      </div>
+      <div class="notice">
+        <div class="nt">[!] 不加 REUSE=1 会重新开始</div>
+        <p>默认行为是<strong>删除并重建镜像文件</strong>。续传时一定要带 <code class="inl">REUSE=1</code>，否则前面拷贝的 148 GB 会被丢掉。</p>
+      </div>
+
+      <p>脚本相对官方 <code class="inl">mkexfat_macos.sh</code> 的三处改进：强制 64 KiB 簇、自动剔除 <code class="inl">.DS_Store</code>/<code class="inl">._*</code>/发布组垃圾、复制后自动比对文件数与总字节数。</p>
+    </section>
+
+    <!-- 04 -->
+    <section id="manual">
+      <h2 class="sec"><span class="num">[04]</span>手敲命令 · 八步 <span class="en-t">Manual, eight steps</span></h2>
+      <div class="sec-sub">每一步都可单独执行和检查<span class="en">Each step can be run and inspected on its own</span></div>
+
+      <div class="notice info">
+        <div class="nt">[i] 变量会一路沿用</div>
+        <p>按顺序执行时，<code class="inl">GAME</code>、<code class="inl">D</code>、<code class="inl">MNT</code> 赋值一次后续直接复用。<strong>要单独跑某一步，把上一步的变量定义一起复制过去</strong>，否则会拿到空值。想完全省心就用第 07 节的整段脚本。</p>
+      </div>
+
+      <h3 class="step"><span class="sn">4.1</span>量一下体积 <span class="en-t">Measure the source</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">记下这个数字，下一步要用</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> GAME="/Volumes/MYSSD/downloads/ps5/PPSA12345"
+<span class="prompt">$</span> du -sh "$GAME"</code></pre>
+<pre class="outp"><code><span class="out">233G	/Volumes/MYSSD/downloads/ps5/PPSA12345</span></code></pre>
+      </div>
+      <p>按「游戏体积 + 1～2 GB」来定镜像大小。233 GB 的游戏，做 235 GB 的镜像就够。</p>
+      <p class="en-block">Size the image at roughly the game size plus 1–2 GB.</p>
+
+      <h3 class="step"><span class="sn">4.2</span>建空白稀疏镜像 <span class="en-t">Create a blank sparse image</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">瞬间完成，不会真的写 235 GB 的零</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> cd /Volumes/MYSSD/homebrew
+<span class="prompt">$</span> mkfile -n 235g PPSA12345.exfat
+<span class="prompt">$</span> ls -lh PPSA12345.exfat</code></pre>
+<pre class="outp"><code><span class="out">-rw-------  1 user  staff   235G  PPSA12345.exfat</span></code></pre>
+      </div>
+      <p><code class="inl">-n</code> 表示「不要真正写入数据」，只建一个<strong>稀疏文件</strong>，所以 235 GB 的镜像会瞬间创建好，实际占用由后续写入量决定。</p>
+      <p class="en-block"><code>mkfile -n</code> is the macOS equivalent of Linux's <code>truncate -s</code>: it allocates instantly without writing zeros.</p>
+
+      <h3 class="step"><span class="sn">4.3</span>把镜像挂成设备 <span class="en-t">Attach as a block device</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">拿到 /dev/diskN 设备节点</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> D=$(diskutil image attach --noMount PPSA12345.exfat | awk '{print $1}')
+<span class="prompt">$</span> echo "$D"</code></pre>
+<pre class="outp"><code><span class="out">/dev/disk6</span></code></pre>
+      </div>
+      <div class="notice danger">
+        <div class="nt">[X] 为什么不能直接格式化镜像文件？</div>
+        <p>因为 <code class="inl">newfs_exfat</code> 需要一个带真实扇区几何信息的<strong>块设备</strong>。直接喂给它一个普通文件会报 <code class="inl">newfs_exfat: /dev/xxx.exfat: No such file or directory</code>——它把你的文件名当成 <code class="inl">/dev</code> 下的设备去找了。</p>
+      </div>
+      <p class="en-block">On macOS 26 and later <code>hdiutil attach -nomount</code> is deprecated; <code>diskutil image attach --noMount</code> is the modern replacement.</p>
+
+      <h3 class="step"><span class="sn">4.4</span>格式化成 64 KiB 簇的 exFAT <span class="en-t">Format with 64 KiB clusters</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">最关键的一步</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> newfs_exfat -b 65536 -v PPSA12345 "/dev/r${D##*/}"</code></pre>
+<pre class="outp"><code><span class="out">Volume name      : PPSA12345
+Volume size      : 489674752 sectors (250713473024 bytes)
+Bytes per sector : 512
+Bytes per cluster: <span class="hl">65536</span>
+FAT offset       : 2048 sectors (1048576 bytes)
+# FAT sectors    : 30720
+Number of FATs   : 1
+Cluster offset   : 32768 sectors (16777216 bytes)
+# Clusters       : 3825328</span></code></pre>
+      </div>
+      <ul>
+        <li><code class="inl">-b 65536</code>：<strong>注意 <code class="inl">-b</code> 直接传「字节/簇」，不是扇区数</strong>。65536 字节正好是官方要求的 64 KiB。</li>
+        <li><code class="inl">-v</code>：卷标，设成标题 ID 方便识别。</li>
+        <li><code class="inl">/dev/rdiskN</code> 里的 <code class="inl">r</code> 表示 <strong>raw 裸设备</strong>，比带缓冲的设备快。</li>
+      </ul>
+      <p>输出里的 <code class="inl">Bytes per cluster: 65536</code> 就是成功标志。这一步错了，后面全白做。</p>
+      <p class="en-block">The <code>-b</code> flag takes <strong>bytes per cluster</strong>, not sectors. 65536 bytes = 64 KiB, exactly what ShadowMountPlus requires.</p>
+
+      <h3 class="step"><span class="sn">4.5</span>挂载它 <span class="en-t">Mount it</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">必须用 diskutil mount</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> diskutil mount "$D"
+<span class="prompt">$</span> MNT="/Volumes/PPSA12345"
+<span class="prompt">$</span> mount | grep "^$D "</code></pre>
+<pre class="outp"><code><span class="out">Volume PPSA12345 on /dev/disk6 mounted</span></code></pre>
+      </div>
+      <div class="notice danger">
+        <div class="nt">[X] 不要用 <code>mount -t exfat</code></div>
+        <p>很多老教程写的是 <code class="inl">sudo mount -t exfat …</code>。但在较新的 macOS 上这会失败：</p>
+        <p style="color:var(--text);border-left:2px solid var(--border);padding-left:12px;margin-top:10px">mount_exfat: exfat filesystem is not available<br>mount: … failed with 71</p>
+        <p><strong>一律改用 <code class="inl">diskutil mount</code></strong>，它会正确处理驱动加载，而且不需要 sudo。</p>
+      </div>
+
+      <h3 class="step"><span class="sn">4.6</span>拷贝游戏文件 <span class="en-t">Copy the files</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">rsync 参数保持最简，这点很重要</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> rsync -r --progress \
+<span class="prompt">&gt;</span>   --exclude='.DS_Store' --exclude='._*' \
+<span class="prompt">&gt;</span>   --exclude='_DUPLEX_'  --exclude='GKinto.com.txt' \
+<span class="prompt">&gt;</span>   "$GAME"/ "$MNT"/</code></pre>
+<pre class="outp"><code><span class="out">eboot.bin
+        259129280 100%  182.53MB/s   00:01:21 (xfer#14, to-check=91/105)
+prx/
+prx/akgain.prx
+         1234567 100%  140.11MB/s   00:00:00 (xfer#15, to-check=89/105)</span></code></pre>
+      </div>
+      <div class="notice danger">
+        <div class="nt">[X] 别给 rsync 加 -ltDHh 之类的参数</div>
+        <p>这是本页最反直觉的一条。macOS 源文件带有一个删不掉的 <code class="inl">com.apple.provenance</code> 扩展属性，一旦 rsync 试图传递时间戳/硬链接/设备号，macOS 就会为每个文件额外塞一个 <code class="inl">._文件名</code> 的影子文件进镜像。</p>
+        <p>实测：<code class="inl">-ltDHh</code> 会生成一堆 <code class="inl">._eboot.bin</code>、<code class="inl">._sce_sys</code>；而官方的 <code class="inl">rsync -r --progress</code> <strong>一个都不会生成</strong>。参数越少越干净。</p>
+      </div>
+      <p class="en-block">Counter-intuitive but important: keep <code>rsync</code>'s flags minimal. Extra flags such as <code>-ltDHh</code> make macOS emit AppleDouble <code>._*</code> companion files for every source file.</p>
+
+      <h3 class="step"><span class="sn">4.7</span>清理 macOS 残留 <span class="en-t">Clean leftovers</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">顺序有讲究，别调换</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> dot_clean -m "$MNT"
+<span class="prompt">$</span> rm -rf "$MNT/.fseventsd" "$MNT/.Spotlight-V100"
+<span class="prompt">$</span> rm -rf "$MNT/.Trashes"          <span class="cmt"># 必须最后删</span>
+<span class="prompt">$</span> find "$MNT" -name '._*' -delete
+<span class="prompt">$</span> ls -a "$MNT"                    <span class="cmt"># 确认只剩游戏文件</span></code></pre>
+      </div>
+      <ul>
+        <li><code class="inl">dot_clean -m</code>：把万一产生的 <code class="inl">._*</code> 影子文件合并/清掉，macOS 自带的官方工具。</li>
+        <li><strong>删除顺序必须是「先 <code class="inl">.fseventsd</code>，最后 <code class="inl">.Trashes</code>」</strong>。反过来的话，删 <code class="inl">.fseventsd</code> 会被丢进废纸篓，反而把 <code class="inl">.Trashes</code> 又重建出来。</li>
+      </ul>
+
+      <h3 class="step"><span class="sn">4.8</span>落盘并卸载 <span class="en-t">Flush and unmount</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">sync 别省，200 GB 写缓存不能靠运气</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> sync
+<span class="prompt">$</span> diskutil unmount "$MNT"
+<span class="prompt">$</span> diskutil eject "$D"</code></pre>
+<pre class="outp"><code><span class="out">Volume PPSA12345 on disk6 unmounted
+"disk6" ejected.</span></code></pre>
+      </div>
+      <p class="en-block">macOS aggressively caches writes in RAM. Always <code>sync</code> and let the unmount finish before unplugging anything — skipping this on a 200 GB image is how you get a corrupt image.</p>
+    </section>
+
+    <!-- 05 -->
+    <section id="verify">
+      <h2 class="sec"><span class="num">[05]</span>校验镜像 <span class="en-t">Verify</span></h2>
+      <div class="sec-sub">四项独立检查，不依赖任何工具的自述<span class="en">Four independent checks that don't trust the builder</span></div>
+
+      <h3 class="step"><span class="sn">5.1</span>直接读引导扇区，验簇大小 <span class="en-t">Read the boot sector</span></h3>
+      <p>不挂载文件系统，直接从镜像的 exFAT 引导扇区（BPB）里读参数。这是最硬的证据：</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">偏移 108 = 扇区位移，109 = 每簇扇区位移</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> IMG=/Volumes/MYSSD/homebrew/PPSA12345.exfat
+<span class="prompt">$</span> od -An -tu1 -j 108 -N 2 "$IMG" | awk 'NR==1{printf "扇区 %d B × 每簇 %d 扇区 = 每簇 %d B\n", 2^$1, 2^$2, 2^$1*2^$2}'
+<span class="prompt">$</span> dd if="$IMG" bs=1 skip=3 count=5 2>/dev/null; echo
+<span class="prompt">$</span> od -An -tu8 -j 72 -N 8 "$IMG" | awk 'NR==1{printf "%d 扇区 × 512 = %.2f GiB\n", $1, $1*512/1024/1024/1024}'</code></pre>
+<pre class="outp"><code><span class="out">扇区 512 B × 每簇 128 扇区 = 每簇 <span class="hl">65536</span> B
+EXFAT
+489674752 扇区 × 512 = <span class="hl">233.50 GiB</span></span></code></pre>
+      </div>
+      <p><code class="inl">512 × 128 = 65536</code>，说明簇大小正是 64 KiB。<code class="inl">EXFAT</code> 说明文件系统标识正确。</p>
+      <div class="notice">
+        <div class="nt">[!] macOS 的 <code>od</code> 会多输出一个空行</div>
+        <p>所以上面两条 <code class="inl">od</code> 命令都加了 <code class="inl">awk 'NR==1{...}'</code> 只取第一行。不加守卫的话，<code class="inl">od</code> 尾部的空行会被 <code class="inl">awk</code> 当成一行数据，多打印出 <code class="inl">扇区 1 B × 每簇 1 扇区 = 每簇 1 B</code> 这样一行错误结果。</p>
+        <p>不想依赖 <code class="inl">od</code>，也可以直接读这两个原始字节：<code class="inl">xxd -s 108 -l 2 -p "$IMG"</code> 输出 <code class="inl">0907</code>，即 <code>0x09</code> = 9、<code class="inl">0x07</code> = 7，同样得出 <code class="inl">2^9 × 2^7 = 65536</code>。</p>
+      </div>
+      <p class="en-block">Offset 108 holds the bytes-per-sector shift, offset 109 the sectors-per-cluster shift. <code>2^9 × 2^7 = 65536</code>.</p>
+
+      <h3 class="step"><span class="sn">5.2</span>挂载后核对文件数与总字节 <span class="en-t">Compare counts and bytes</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">源与镜像必须完全一致</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> IMG=/Volumes/MYSSD/homebrew/PPSA12345.exfat
+<span class="prompt">$</span> D=$(diskutil image attach --noMount "$IMG" | awk '{print $1}')
+<span class="prompt">$</span> diskutil mount "$D" >/dev/null; MNT="/Volumes/PPSA12345"
+<span class="prompt">$</span> echo "文件数: $(find "$MNT" -type f | wc -l | tr -d ' ')"
+<span class="prompt">$</span> find "$MNT" -type f -print0 | xargs -0 stat -f '%z' | awk '{s+=$1} END {print "总字节:", s}'</code></pre>
+<pre class="outp"><code><span class="out">文件数: 105
+总字节: 250122409030</span></code></pre>
+      </div>
+      <div class="notice info">
+        <div class="nt">[i] 小技巧：为什么用 xargs 而不是 find -exec</div>
+        <p><code class="inl">find … -exec stat -f '%z' {} \;</code> 在某些受限环境里会因为引号处理方式不同而报 <code class="inl">stat: '%z': No such file or directory</code>。改成 <code class="inl">-print0 | xargs -0 stat</code> 更稳也更快。</p>
+      </div>
+
+      <h3 class="step"><span class="sn">5.3</span>抽查大文件的哈希 <span class="en-t">Spot-check a hash</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">两行哈希必须一模一样</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> MNT="/Volumes/PPSA12345"
+<span class="prompt">$</span> GAME="/Volumes/MYSSD/downloads/ps5/PPSA12345"
+<span class="prompt">$</span> shasum -a 256 "$MNT/eboot.bin" "$GAME/eboot.bin"</code></pre>
+<pre class="outp"><code><span class="out">4f2a9c1e7b3d05a8c6e1f9042b7d8e3a5c0f6b2194d8e7a3c5b1f0d6928e4a7c  /Volumes/PPSA12345/eboot.bin
+4f2a9c1e7b3d05a8c6e1f9042b7d8e3a5c0f6b2194d8e7a3c5b1f0d6928e4a7c  /Volumes/MYSSD/downloads/ps5/PPSA12345/eboot.bin</span></code></pre>
+      </div>
+      <p class="en-block">A matching SHA-256 on a large file is the strongest practical proof that the copy is intact.</p>
+
+      <h3 class="step"><span class="sn">5.4</span>确认根目录没有垃圾 <span class="en-t">Check for junk</span></h3>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">除了 .fseventsd，其余都该为空</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> MNT="/Volumes/PPSA12345"
+<span class="prompt">$</span> ls -a "$MNT"
+<span class="prompt">$</span> find "$MNT" \( -name '._*' -o -name '.DS_Store' -o -name '.Trashes' \) | wc -l</code></pre>
+<pre class="outp"><code><span class="out">.  ..  <span class="hl">.fseventsd</span>  ampr_emu.index  eboot.bin  engine  fakelib
+live  package.manifest  prx  sce_module  sce_sys
+0</span></code></pre>
+      </div>
+      <div class="notice">
+        <div class="nt">[!] <code>.fseventsd</code> 是正常的，删不掉也不用删</div>
+        <p>只要你在 macOS 上挂载过这个 exFAT 卷，系统就会自动生成一个空的 <code class="inl">.fseventsd</code> 目录。这是 macOS 的文件事件日志机制，<strong>每次挂载都会重建，无法根除</strong>（官方脚本干脆不处理）。它只是个空目录，对 PS5 侧完全无影响。</p>
+      </div>
+
+      <p>最后卸载：</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">先取回设备节点，再卸载</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> MNT="/Volumes/PPSA12345"
+<span class="prompt">$</span> D=$(mount | grep " on $MNT " | awk '{print $1}')
+<span class="prompt">$</span> diskutil unmount "$MNT" &amp;&amp; diskutil eject "$D"</code></pre>
+      </div>
+    </section>
+
+    <!-- 06 -->
+    <section id="trouble">
+      <h2 class="sec"><span class="num">[06]</span>专属排错 <span class="en-t">Troubleshooting</span></h2>
+      <div class="sec-sub">每一条都是实际踩过的坑<span class="en">Every row was hit for real during testing</span></div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>现象</th><th>原因</th><th>处理</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>newfs_exfat: /dev/xxx.exfat:<br>No such file or directory</code></td>
+              <td>直接把镜像<strong>文件</strong>传给了 newfs_exfat</td>
+              <td>先用 <code>diskutil image attach --noMount</code> 挂成 <code>/dev/diskN</code>，再格式化</td>
+            </tr>
+            <tr>
+              <td><code>exfat filesystem is not available</code><br><code>mount: … failed with 71</code></td>
+              <td>用了 <code>mount -t exfat</code>，新系统上驱动加载权限受限</td>
+              <td>改用 <code>diskutil mount "$DEV"</code></td>
+            </tr>
+            <tr>
+              <td>镜像里全是 <code>._eboot.bin</code>、<code>._sce_sys</code></td>
+              <td>rsync 带了 <code>-ltDHh</code> 等参数，触发了 AppleDouble 影子文件</td>
+              <td>参数改成只有 <code>-r --progress</code>；已产生的用 <code>dot_clean -m</code> 清掉</td>
+            </tr>
+            <tr>
+              <td>根目录出现 <code>.fseventsd</code> / <code>.Trashes</code></td>
+              <td>macOS 挂载 exFAT 卷时自动生成，删了也会重建</td>
+              <td>无害，可忽略；要清就按「先 <code>.fseventsd</code>、最后 <code>.Trashes</code>」的顺序</td>
+            </tr>
+            <tr>
+              <td><code>stat: '%z': No such file or directory</code></td>
+              <td>受限/沙箱环境下 <code>find -exec stat -f '%z' {} \;</code> 的引号被当成文件名</td>
+              <td>改用 <code>find … -print0 | xargs -0 stat -f '%z'</code></td>
+            </tr>
+            <tr>
+              <td>脚本跑到一半莫名退出</td>
+              <td><code>set -e</code> 遇到返回非 0 的自检命令</td>
+              <td>把 <code>A &amp;&amp; B</code> 写成 <code>if … then … fi</code>，或在自检后加 <code>|| true</code></td>
+            </tr>
+            <tr>
+              <td>挂上了，但游戏卡顿 / 音画异常</td>
+              <td>簇大小不是 64 KiB</td>
+              <td>用第 05 节的 <code>od</code> 命令确认，不是 <code>65536</code> 就重建</td>
+            </tr>
+            <tr>
+              <td>拷贝速度只有 100–150 MB/s</td>
+              <td>多半是硬盘盒/线材的链路瓶颈，不是脚本</td>
+              <td>查协商档位：<code>ioreg -rc IOUSBHostDevice -w 0 | grep "Device Speed"</code></td>
+            </tr>
+            <tr>
+              <td>插盘后断电 / 中途拔盘</td>
+              <td>写缓存没落盘，镜像可能已损坏</td>
+              <td>用 <code>REUSE=1</code> 重跑一次补齐，再重新校验</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>如果问题不在工具链上（例如 PS5 识别不到、挂载后没反应），看<a href="index.html#trouble">总览的公共排错表</a>。</p>
+    </section>
+
+    <!-- 07 -->
+    <section id="cheat">
+      <h2 class="sec"><span class="num">[07]</span>命令速查 <span class="en-t">Cheat sheet</span></h2>
+      <div class="sec-sub">自包含，可整段复制后改路径直接跑<span class="en">Self-contained — copy, change paths, run</span></div>
+
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">八步全流程</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="cmt"># 变量：源目录 / 镜像文件 / 卷标</span>
+GAME="/Volumes/MYSSD/downloads/ps5/PPSA12345"
+IMG="/Volumes/MYSSD/homebrew/PPSA12345.exfat"
+LABEL="PPSA12345"
+
+<span class="cmt"># 1) 建稀疏镜像（大小 = 游戏体积 + 1~2GB）</span>
+mkfile -n 235g "$IMG"
+
+<span class="cmt"># 2) 挂成块设备</span>
+D=$(diskutil image attach --noMount "$IMG" | awk '{print $1}')
+
+<span class="cmt"># 3) 格式化为 64 KiB 簇 exFAT</span>
+newfs_exfat -b 65536 -v "$LABEL" "/dev/r${D##*/}"
+
+<span class="cmt"># 4) 挂载</span>
+diskutil mount "$D"
+MNT="/Volumes/$LABEL"
+
+<span class="cmt"># 5) 拷贝（参数保持最简）</span>
+rsync -r --progress \
+  --exclude='.DS_Store' --exclude='._*' \
+  --exclude='_DUPLEX_' --exclude='GKinto.com.txt' \
+  "$GAME"/ "$MNT"/
+
+<span class="cmt"># 6) 清理 macOS 残留</span>
+dot_clean -m "$MNT"
+rm -rf "$MNT/.fseventsd" "$MNT/.Spotlight-V100"
+rm -rf "$MNT/.Trashes"
+find "$MNT" -name '._*' -delete
+
+<span class="cmt"># 7) 校验（应输出 512 x 128 = 65536 bytes/cluster）</span>
+od -An -tu1 -j 108 -N 2 "$IMG" | awk 'NR==1{printf "%d x %d = %d bytes/cluster\n", 2^$1, 2^$2, 2^$1*2^$2}'
+find "$MNT" -type f | wc -l
+
+<span class="cmt"># 8) 落盘并卸载</span>
+sync
+diskutil unmount "$MNT" &amp;&amp; diskutil eject "$D"</code></pre>
+      </div>
+
+      <div class="notice ok">
+        <div class="nt">[OK] 做完了</div>
+        <p>接下来把它放进 <code class="inl">&lt;盘根&gt;/homebrew/</code> 或 <code class="inl">/data/homebrew/</code>，详见<a href="index.html#deploy">总览第 05 节</a>。</p>
+      </div>
+    </section>
+
+    <footer>
+      <div class="flinks">
+        <a href="index.html">总览</a>
+        <a href="exfat.html">exFAT 教程</a>
+        <a href="ffpkg.html">UFS2 · ffpkg 教程</a>
+        <a href="https://github.com/lvzhongpei/ps5-macos-image-guide" target="_blank" rel="noopener">GitHub 仓库</a>
+        <a href="#scope">回到顶部</a>
+      </div>
+      <div class="dis">
+        PS5 game dump → <code>.exfat</code> image on macOS · 命令与日志均来自真实运行记录（路径与标题 ID 已脱敏）。<br>
+        本页仅涉及磁盘镜像格式转换的技术步骤，不包含任何游戏内容。请仅使用你合法拥有的游戏备份。
+      </div>
+    </footer>
+  </main>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

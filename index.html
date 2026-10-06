@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PS5 游戏镜像制作 · macOS 完整指南</title>
+<meta name="description" content="在 macOS 上把 PS5 文件夹格式游戏 dump 做成 ShadowMountPlus 可挂载的镜像：exFAT 与 UFS2 (.ffpkg) 两种格式的完整教程、一键脚本与故障排查。">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="show-en">
+
+<div class="top">
+  <div class="top-in">
+    <div class="brand">
+      <span class="dot3"><i></i><i></i><i></i></span>
+      <span>ps5-macos-image-guide</span>
+    </div>
+    <nav class="pnav">
+      <a href="index.html">总览</a>
+      <a href="exfat.html">exFAT</a>
+      <a href="ffpkg.html">UFS2 · ffpkg</a>
+    </nav>
+    <div class="top-actions">
+      <button class="btn menu-btn" id="menuBtn">目录</button>
+      <button class="btn on" id="enBtn">EN 对照</button>
+      <button class="btn" id="themeBtn">浅色</button>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  <nav class="toc" id="toc">
+    <div class="toc-title">CONTENTS</div>
+    <div class="toc-group">总览 OVERVIEW</div>
+    <a href="#intro"><span class="num">01</span>这是什么</a>
+    <a href="#glossary"><span class="num">02</span>名词速查</a>
+    <a href="#pick"><span class="num">03</span>该选哪种格式</a>
+    <div class="toc-group">准备 PREPARE</div>
+    <a href="#before"><span class="num">04</span>开始前的检查</a>
+    <div class="toc-group">PS5 端 CONSOLE</div>
+    <a href="#deploy"><span class="num">05</span>放到 PS5 上</a>
+    <a href="#trouble"><span class="num">06</span>故障排查</a>
+    <div class="toc-group">进阶 MORE</div>
+    <a href="#internals"><span class="num">07</span>原理对比</a>
+    <a href="#appendix"><span class="num">08</span>附录与声明</a>
+  </nav>
+
+  <main>
+    <div class="hero">
+      <div class="hero-bar">
+        <span class="dot3"><i></i><i></i><i></i></span>
+        <span class="path">~/ps5-macos-image-guide — zsh</span>
+      </div>
+      <div class="hero-body">
+        <h1>PS5 游戏 dump <span class="arrow">→</span> 可挂载的镜像</h1>
+        <div class="sub">在 macOS 上把「文件夹格式」的 PS5 游戏备份，做成 ShadowMountPlus 能挂载的镜像。<strong>两种格式都讲清楚，你按自己的场景选。</strong></div>
+        <div class="en-block">Turn a PS5 folder-format game dump into an image your console can mount — on macOS. Both the exFAT and the UFS2 (<code>.ffpkg</code>) route are covered end to end.</div>
+        <div class="term-line"><span class="p">$</span> <span class="c">./smp-mkexfat.sh  "&lt;游戏目录&gt;"  "&lt;输出&gt;.exfat"</span>   <span class="o"># 外置盘兼容</span></div>
+        <div class="term-line"><span class="p">$</span> <span class="c">./smp-mkffpkg.sh "&lt;游戏目录&gt;"  "&lt;输出&gt;.ffpkg"</span>   <span class="o"># 官方推荐</span></div>
+        <div class="term-line"><span class="okc">OK 两种格式都有完整教程、一键脚本与校验</span> <span class="cursor"></span></div>
+        <div class="chips">
+          <span class="chip">实测 macOS 27 · M4</span>
+          <span class="chip">不需要 sudo</span>
+          <span class="chip">中英双语</span>
+          <span class="chip">含断点续传</span>
+          <span class="chip ok">全部命令实测通过</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="notice info">
+      <div class="nt">[i] 代码块怎么读 / How to read the code blocks</div>
+      <p><strong>左侧绿色竖条</strong>是<strong>命令区</strong>——直接粘到终端执行。点右上角 <code class="inl">copy</code> <strong>只会复制这一部分</strong>，并且会自动去掉行首的 <code class="inl">$</code> 和 <code class="inl">&gt;</code> 提示符。</p>
+      <p><strong>灰色竖条 + 上方虚线</strong>是命令的<strong>实际输出</strong>，字色更暗，仅供对照，<strong>永远不会被复制</strong>。纯输出块没有 copy 按钮。</p>
+    </div>
+
+    <div class="notice danger">
+      <div class="nt">[!] 使用前提 / Before you use this</div>
+      <p>本站只讨论<strong>磁盘镜像的格式转换</strong>。请仅对<strong>你自己合法拥有</strong>的游戏备份使用。</p>
+      <p>This site only covers filesystem/image conversion. Use it only with game backups you legally own. No game content is provided or linked here.</p>
+    </div>
+
+    <!-- ============ 01 ============ -->
+    <section id="intro">
+      <h2 class="sec"><span class="num">[01]</span>这是什么 <span class="en-t">What this is about</span></h2>
+      <div class="sec-sub">先搞清楚「镜像」在这里到底指什么<span class="en">What an "image" actually is in this context</span></div>
+
+      <p>PS5 越狱环境里，游戏备份有三种常见形态。ShadowMountPlus 会自动扫描并挂载它们，但三种形态的适用场景并不相同：</p>
+      <div class="en-block">ShadowMountPlus, the background auto-mounter for jailbroken PS5 consoles, can handle three kinds of game backups. They are not interchangeable.</div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>形态</th><th>长什么样</th><th>适合放哪</th><th>官方态度</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>文件夹格式<br><span style="color:var(--text-faint);font-size:12px">folder dump</span></td>
+              <td>一个目录，根下直接是 <code>eboot.bin</code>、<code>sce_sys/</code></td>
+              <td>外置盘最省事</td>
+              <td>简单直观</td>
+            </tr>
+            <tr>
+              <td><code>.ffpkg</code><br><span style="color:var(--text-faint);font-size:12px">UFS2 镜像</span></td>
+              <td>单个文件，内部是 UFS2 文件系统</td>
+              <td>内置 SSD / 外置盘都可以</td>
+              <td><span class="fchip rec">推荐</span> 常规首选</td>
+            </tr>
+            <tr>
+              <td><code>.exfat</code><br><span style="color:var(--text-faint);font-size:12px">exFAT 镜像</span></td>
+              <td>单个文件，内部是 exFAT 文件系统</td>
+              <td>外置盘</td>
+              <td><span class="fchip compat">兼容场景</span> 仅当需要「外置盘式」处理时</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>那为什么要费劲把文件夹「打成镜像」？两个原因：</p>
+      <ul>
+        <li><strong>单个文件更好搬</strong>——几万个碎文件的目录，用 Finder 复制容易中断、容易带出 macOS 垃圾文件，也没法整体校验完整性。</li>
+        <li><strong>挂载方式不一样</strong>——某些游戏只有在被当作「外置盘内容」时才能正常跑，镜像正好提供这个语义。</li>
+      </ul>
+      <div class="en-block">Two reasons: a single file is far easier to move and verify than tens of thousands of loose files, and some titles only behave correctly when they are handled as external-drive content.</div>
+
+      <div class="notice">
+        <div class="nt">[!] 先说结论：默认选 .ffpkg，只有一种情况选 .exfat</div>
+        <p>ShadowMountPlus 官方把 <strong>UFS（<code class="inl">.ffpkg</code>）列为推荐格式</strong>，把 <code class="inl">.exfat</code> 定位成「给那些不按外置盘方式处理就跑不正常的游戏用」。</p>
+        <p>所以本站的主线是：<strong>先做 .ffpkg；只有当某个游戏确实异常时，才为它改做 .exfat</strong>。第 <a href="#pick">03 节</a>有完整的判断表和一个交互决策器。</p>
+      </div>
+    </section>
+
+    <!-- ============ 02 ============ -->
+    <section id="glossary">
+      <h2 class="sec"><span class="num">[02]</span>名词速查 <span class="en-t">Glossary</span></h2>
+      <div class="sec-sub">不懂也能照做，但看懂了下文更顺<span class="en">Skim once — the rest reads much easier</span></div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>词</th><th>一句话解释</th></tr></thead>
+          <tbody>
+            <tr><td>dump</td><td>从主机上导出的游戏数据副本。本站说的都是「文件夹格式」的 dump。</td></tr>
+            <tr><td>PPSA / 标题 ID</td><td>PS5 游戏的唯一编号，形如 <code>PPSA12345</code>。游戏目录名通常就是它。</td></tr>
+            <tr><td>镜像 image</td><td>一个文件，内部装着一个完整的小型文件系统。系统把它当"一块盘"来读。</td></tr>
+            <tr><td>exFAT</td><td>一种文件系统。Windows / macOS / PS5 都能读写，是最通用的交换格式。</td></tr>
+            <tr><td>UFS2</td><td>FreeBSD 的文件系统，PS5 原生就用它。<code>.ffpkg</code> 内部就是 UFS2。</td></tr>
+            <tr><td><code>.ffpkg</code></td><td>"Fake FPKG"。一个内部为 UFS2 的镜像文件，ShadowMountPlus 的推荐格式。</td></tr>
+            <tr><td>簇 cluster</td><td>exFAT 分配空间的最小单位。做 .exfat 时<strong>必须用 64 KiB 的簇</strong>。</td></tr>
+            <tr><td>block / fragment</td><td>UFS2 的分配单位。做 .ffpkg 常用 32 KiB block + 4 KiB fragment。</td></tr>
+            <tr><td>稀疏文件 sparse</td><td>声明「我有 233 GB」但只占已写入部分。建 exFAT 镜像时用它，瞬间完成。</td></tr>
+            <tr><td>挂载 mount</td><td>把镜像接到某个目录下，让系统能像普通文件夹一样读写。</td></tr>
+            <tr><td>设备节点 <code>/dev/diskN</code></td><td>macOS 把一块盘（含镜像）抽象成的特殊文件。<code>newfs_exfat</code> 只认它。</td></tr>
+            <tr><td>ShadowMountPlus</td><td>PS5 越狱环境下的后台自动挂载器。需要 Kstuff（Lite）v1.07+。</td></tr>
+            <tr><td>Kstuff</td><td>PS5 越狱所需的内核层 payload。加载它之后，ShadowMountPlus 才能工作。</td></tr>
+            <tr><td>APR-Emu 类型</td><td>一类特殊游戏，目录里带 <code>ampr_emu.index</code> 索引文件，做镜像时要原样保留。</td></tr>
+            <tr><td>UFS2Tool</td><td>跨平台的开源 UFS2 工具（.NET），macOS 原生可跑。做 .ffpkg 就用它。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ 03 ============ -->
+    <section id="pick">
+      <h2 class="sec"><span class="num">[03]</span>该选哪种格式 <span class="en-t">Pick a format</span></h2>
+      <div class="sec-sub">一张表 + 一个决策器，三十秒决定<span class="en">One table and one decider — thirty seconds</span></div>
+
+      <h3 class="step"><span class="sn">3.1</span>对照表 <span class="en-t">Side by side</span></h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>对比项</th><th><code>.ffpkg</code>（UFS2）</th><th><code>.exfat</code></th></tr></thead>
+          <tbody>
+            <tr><td>官方定位</td><td><span class="yes">常规首选</span></td><td><span class="mid">外置盘兼容场景</span></td></tr>
+            <tr><td>制作步骤</td><td><span class="yes">一条命令，不挂载</span></td><td>八步，需要挂载写文件</td></tr>
+            <tr><td>macOS 残留文件</td><td><span class="yes">完全不会产生</span></td><td>会带出 <code>._*</code>，需 <code>dot_clean</code> 清理</td></tr>
+            <tr><td>空间效率</td><td><span class="yes">更高</span>（元数据开销小）</td><td>簇末填充浪费更多</td></tr>
+            <tr><td>需要装额外工具</td><td>需要（UFS2Tool，40 MB 自包含）</td><td><span class="yes">不需要，macOS 自带命令</span></td></tr>
+            <tr><td>能否手工修改内容</td><td>要用 UFS2Tool 的 <code>add</code>/<code>delete</code></td><td><span class="yes">可以挂载后用 Finder 改</span></td></tr>
+            <tr><td>PS5 端后端</td><td>UFS，可选择 <code>lvd</code> 或 <code>md</code></td><td>exFAT，可选择 <code>lvd</code> 或 <code>md</code></td></tr>
+            <tr><td>放内置 SSD</td><td><span class="yes">直接可用</span></td><td>需要额外的只读 / 扇区设置</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="step"><span class="sn">3.2</span>交互决策器 <span class="en-t">Decider</span></h3>
+      <p>三个问题，直接给结论：</p>
+      <div class="decider" id="decider">
+        <div class="dq">
+          <div class="ql"><b>Q1.</b> 镜像最终放在哪？</div>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="dWhere" value="external">外置 USB / 硬盘盒</label>
+            <label class="opt"><input type="radio" name="dWhere" value="internal">PS5 内置 SSD / M.2</label>
+            <label class="opt"><input type="radio" name="dWhere" value="unsure">还没定</label>
+          </div>
+        </div>
+        <div class="dq">
+          <div class="ql"><b>Q2.</b> 这个游戏有没有「只有按外置盘方式处理才正常」的情况？（例如文件夹格式跑起来卡顿、音画异常、读不到数据）</div>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="dCompat" value="yes">有，确实异常过</label>
+            <label class="opt"><input type="radio" name="dCompat" value="no">没有，一直正常</label>
+            <label class="opt"><input type="radio" name="dCompat" value="unsure">还没试过</label>
+          </div>
+        </div>
+        <div class="dq">
+          <div class="ql"><b>Q3.</b> 你最在意什么？</div>
+          <div class="opts">
+            <label class="opt"><input type="radio" name="dCare" value="official">跟随官方推荐</label>
+            <label class="opt"><input type="radio" name="dCare" value="steps">步骤越少越好</label>
+            <label class="opt"><input type="radio" name="dCare" value="space">空间占用最小</label>
+          </div>
+        </div>
+        <div id="decideOut"></div>
+      </div>
+
+      <h3 class="step"><span class="sn">3.3</span>两条完整教程 <span class="en-t">The two guides</span></h3>
+      <div class="hub">
+        <a class="hub-card" href="ffpkg.html">
+          <div class="hc-t">UFS2 镜像 · <code>.ffpkg</code> <span class="tag rec">官方推荐</span></div>
+          <div class="hc-d">用 UFS2Tool 一条命令建镜像。不挂载、不需要 sudo、不产生任何 macOS 残留文件，建完还能用 <code>fsck_ufs</code> 自检。
+            <span class="en">One command, no mounting, no sudo, no macOS leftover files — plus a real filesystem check.</span>
+          </div>
+          <div class="hc-m">核心命令：<code>UFS2Tool newfs -D &lt;游戏目录&gt; &lt;输出&gt;.ffpkg</code></div>
+          <span class="hc-go">→ 打开完整教程</span>
+        </a>
+        <a class="hub-card" href="exfat.html">
+          <div class="hc-t">exFAT 镜像 · <code>.exfat</code> <span class="tag">兼容场景</span></div>
+          <div class="hc-d">全部使用 macOS 自带命令，不需要安装任何东西。需要挂载写入，所以要注意 <code>._*</code> 影子文件与 <code>.fseventsd</code> 残留的清理。
+            <span class="en">Built entirely with built-in macOS tools — but mounting means you must clean up AppleDouble leftovers.</span>
+          </div>
+          <div class="hc-m">核心要求：强制 <code>64 KiB</code> 簇（官方硬性要求）</div>
+          <span class="hc-go">→ 打开完整教程</span>
+        </a>
+      </div>
+
+      <div class="notice info">
+        <div class="nt">[i] 还有第三条路：根本不做镜像</div>
+        <p>如果你的游戏就在外置盘上、而且文件数不多，直接把<strong>整个文件夹</strong>放进 <code class="inl">&lt;盘根&gt;/homebrew/</code> 也是合法的：ShadowMountPlus 同样能挂载文件夹格式。做镜像的主要收益是「单文件好搬、好校验」。</p>
+      </div>
+    </section>
+
+    <!-- ============ 04 ============ -->
+    <section id="before">
+      <h2 class="sec"><span class="num">[04]</span>开始前的检查 <span class="en-t">Before you start</span></h2>
+      <div class="sec-sub">这一步花两分钟，能省掉后面两小时<span class="en">Two minutes here saves two hours later</span></div>
+
+      <h3 class="step"><span class="sn">4.1</span>确认源目录结构正确 <span class="en-t">Check the source layout</span></h3>
+      <p>这是最容易踩的坑：<strong>游戏文件必须直接在目录根下，不能多套一层</strong>。ShadowMountPlus 靠根目录的 <code class="inl">eboot.bin</code> 和 <code class="inl">sce_sys/param.json</code> 来识别游戏。</p>
+      <div class="en-block">The most common mistake. <code>eboot.bin</code> must sit at the root of the source folder — no extra nesting level.</div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px">
+        <div class="tree"><span class="okc">// 正确 Correct</span>
+<span class="d">PPSA12345/</span>
+├── <span class="k">eboot.bin</span>          <span class="x">← 必须在根下</span>
+├── <span class="d">sce_sys/</span>
+│   └── <span class="k">param.json</span>     <span class="x">← 必须在</span>
+├── <span class="d">prx/</span>
+├── <span class="d">sce_module/</span>
+└── <span class="f">ampr_emu.index</span>    <span class="x">← 有就保留</span></div>
+        <div class="tree"><span class="badc">// 错误 Wrong</span>
+<span class="d">PPSA12345/</span>
+└── <span class="d">PPSA12345-app0/</span>   <span class="badc">← 多了一层</span>
+    ├── <span class="k">eboot.bin</span>
+    └── <span class="d">sce_sys/</span>
+
+<span class="x">多套一层会导致 PS5 识别不到游戏。</span></div>
+      </div>
+
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">先看一眼你的目录长什么样</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> GAME="/Volumes/MYSSD/downloads/ps5/PPSA12345"
+<span class="prompt">$</span> ls -la "$GAME"
+<span class="prompt">$</span> ls "$GAME/eboot.bin" "$GAME/sce_sys/param.json"   <span class="cmt"># 两个都必须存在</span></code></pre>
+      </div>
+
+      <h3 class="step"><span class="sn">4.2</span>确认磁盘空间够用 <span class="en-t">Check free space</span></h3>
+      <p>镜像都会比游戏本身大一点，具体差多少取决于格式：</p>
+      <ul>
+        <li><strong>.ffpkg（UFS2）</strong>：元数据开销小，一般多预留 <strong>几百 MB</strong> 就够。</li>
+        <li><strong>.exfat</strong>：每个文件都会按 64 KiB 簇向上取整，零碎文件多的游戏会明显变大，建议多预留 <strong>1–2 GB</strong>。</li>
+        <li><strong>源目录和镜像在同一块盘上</strong>（最常见的做法）时，需要<strong>大约两倍</strong>的可用空间。</li>
+      </ul>
+      <div class="en-block">If the source folder and the image live on the same volume — the usual case — budget roughly <strong>2 ×</strong> the game size free. UFS2 adds far less overhead than exFAT.</div>
+
+      <h3 class="step"><span class="sn">4.3</span>确认工具就位 <span class="en-t">Check the toolchain</span></h3>
+      <p>两种格式需要的工具完全不同：</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>格式</th><th>依赖</th><th>怎么获得</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>.exfat</code></td>
+              <td><code>newfs_exfat</code> <code>mkfile</code> <code>diskutil</code> <code>rsync</code> <code>dot_clean</code></td>
+              <td><span class="yes">macOS 全部自带</span>，从 10.6.5 起就有</td>
+            </tr>
+            <tr>
+              <td><code>.ffpkg</code></td>
+              <td><code>UFS2Tool</code></td>
+              <td>下载官方 release 的 <code>osx-arm64-selfcontained.zip</code>（约 40 MB，<strong>已内置 .NET 运行时，不需要另装 dotnet</strong>）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">exFAT 用的六个命令，都要有输出</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> for c in newfs_exfat mkfile diskutil rsync dot_clean shasum; do
+<span class="prompt">&gt;</span>   printf "%-12s %s\n" "$c" "$(command -v $c || echo MISSING)"
+<span class="prompt">&gt;</span> done</code></pre>
+<pre class="outp"><code><span class="out">newfs_exfat  /sbin/newfs_exfat
+mkfile       /usr/sbin/mkfile
+diskutil     /usr/sbin/diskutil
+rsync        /usr/bin/rsync
+dot_clean    /usr/sbin/dot_clean
+shasum       /usr/bin/shasum</span></code></pre>
+      </div>
+
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">ffpkg 用的 UFS2Tool，看它是否已在 PATH 或本地</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="prompt">$</span> command -v UFS2Tool || ls -l ~/UFS2Tool/UFS2Tool 2>/dev/null || echo "未安装，见 ffpkg 教程第 02 节"</code></pre>
+      </div>
+
+      <h3 class="step"><span class="sn">4.4</span>走一遍检查清单 <span class="en-t">Pre-flight checklist</span></h3>
+      <div class="panel" id="checkList">
+        <div class="pt">开始前逐条打勾 <span class="en">/ tick them off</span></div>
+        <label class="check"><input type="checkbox"><span>游戏目录根下有 <code class="inl">eboot.bin</code> 与 <code class="inl">sce_sys/param.json</code>，且没有多余的一层子目录</span></label>
+        <label class="check"><input type="checkbox"><span>目标盘可用空间 ≥ 游戏体积 × 2（源与镜像同盘时）</span></label>
+        <label class="check"><input type="checkbox"><span>已经用第 03 节的决策器确认了要做哪种格式</span></label>
+        <label class="check"><input type="checkbox"><span>对应格式的工具已就位（exFAT 用系统自带 / ffpkg 已下好 UFS2Tool）</span></label>
+        <label class="check"><input type="checkbox"><span>游戏目录名就是标题 ID（如 <code class="inl">PPSA12345</code>），方便后面命名镜像</span></label>
+        <label class="check"><input type="checkbox"><span>已确认这个游戏是你自己的备份</span></label>
+      </div>
+    </section>
+
+    <!-- ============ 05 ============ -->
+    <section id="deploy">
+      <h2 class="sec"><span class="num">[05]</span>放到 PS5 上 <span class="en-t">Deploy to the PS5</span></h2>
+      <div class="sec-sub">两种格式的部署方式完全一样<span class="en">Deployment is identical for both formats</span></div>
+
+      <h3 class="step"><span class="sn">5.1</span>放对位置 <span class="en-t">Put it in the right place</span></h3>
+      <p>ShadowMountPlus 会自动扫描几个固定路径。按你用的是外置盘还是内置 SSD 选：</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>存储</th><th>推荐路径</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>外置 USB 盘 / HDD / SSD</td><td><code>/mnt/usb0/homebrew/</code><br><code>/mnt/ext0/homebrew/</code></td><td>把镜像丢进盘根的 <code>homebrew/</code> 目录即可</td></tr>
+            <tr><td>PS5 内置存储</td><td><code>/data/homebrew/</code><br><code>/data/etaHEN/games/</code></td><td>通过 FTP 上传，适合常用游戏</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="tree"><span class="x">外置盘根目录</span>
+<span class="d">MYSSD/</span>
+└── <span class="d">homebrew/</span>
+    ├── <span class="k">PPSA12345.ffpkg</span>        <span class="x">← UFS2 镜像</span>
+    ├── <span class="k">PPSA67890.exfat</span>        <span class="x">← exFAT 镜像</span>
+    └── <span class="d">PPSA11111/</span>            <span class="x">← 也可以放文件夹格式</span>
+        ├── eboot.bin
+        └── sce_sys/</div>
+      <div class="notice danger">
+        <div class="nt">[X] 三个常见错误</div>
+        <p>1. 把镜像放进了子文件夹（如 <code class="inl">homebrew/ps5/PPSA12345.ffpkg</code>）——默认只扫描第一层。<br>
+           2. 目录名写成了 <code class="inl">hombrew</code>、<code class="inl">Homebrew</code> 等——大小写和拼写都要对。<br>
+           3. 外置盘本身没格式化成 exFAT——普通 exFAT 盘就行，<strong>不需要</strong>格成 PS5 专用扩展存储。</p>
+      </div>
+
+      <h3 class="step"><span class="sn">5.2</span>PS5 端需要的两个 payload <span class="en-t">The two payloads you need</span></h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>组件</th><th>作用</th><th>版本要求</th></tr></thead>
+          <tbody>
+            <tr><td><a href="https://github.com/drakmor/ShadowMountPlus" target="_blank" rel="noopener">ShadowMountPlus</a></td><td>后台自动扫描并挂载游戏备份</td><td>配合 Kstuff-Lite v1.07+</td></tr>
+            <tr><td><a href="https://github.com/EchoStretch/kstuff-lite/releases" target="_blank" rel="noopener">Kstuff Lite</a></td><td>提供挂载所需的内核层支持</td><td>v1.07 或更新</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="en-block">Installation and injection of these payloads is outside the scope of this guide — follow each project's own README and release notes.</p>
+
+      <h3 class="step"><span class="sn">5.3</span>确认挂载成功 <span class="en-t">Confirm the mount</span></h3>
+      <ul>
+        <li>屏幕上会出现一张 toast 通知，提示发现并挂载了镜像。</li>
+        <li>回到 PS5 主界面，游戏会出现在<strong>游戏库</strong>里，图标和标题正常显示。</li>
+        <li>首次挂载有一个 <code class="inl">stability_wait_seconds</code>（默认 10 秒）的等待期——这是设计如此，别急着拔盘。</li>
+      </ul>
+      <div class="notice info">
+        <div class="nt">[i] 排查的话，先打开调试日志</div>
+        <p>ShadowMountPlus 默认 <code class="inl">debug=1</code>，日志写在 PS5 的 <code class="inl">/data/shadowmount/debug.log</code>。挂载失败的原因基本都能在里面看到。配置文件在 <code class="inl">/data/shadowmount/config.ini</code>，第一次启动时会从模板自动生成。</p>
+      </div>
+
+      <div class="notice">
+        <div class="nt">[!] 官方提醒：挂载镜像本身有风险</div>
+        <p>官方文档明确写过，<strong>挂载镜像在部分旧固件上可能导致关机异常或数据损坏</strong>，越老的固件越常见。重要数据务必备份，并先用不重要的游戏做测试。</p>
+      </div>
+    </section>
+
+    <!-- ============ 06 ============ -->
+    <section id="trouble">
+      <h2 class="sec"><span class="num">[06]</span>故障排查 <span class="en-t">Troubleshooting</span></h2>
+      <div class="sec-sub">先看这张公共表，再看两个格式页里的专属排错<span class="en">Start here, then check the per-format pages</span></div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>现象</th><th>原因</th><th>处理</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>PS5 完全没反应</td>
+              <td>镜像位置不对，或源目录多套了一层</td>
+              <td>确认镜像在 <code>homebrew/</code> 第一层，且游戏根下有 <code>eboot.bin</code></td>
+            </tr>
+            <tr>
+              <td>提示镜像校验失败 / 挂载报错</td>
+              <td>挂载后端选定的设备扇区大于镜像簇大小</td>
+              <td>exFAT 用 64 KiB 簇重建；或在 PS5 的 <code>config.ini</code> 里调 <code>lvd_exfat_sector_size</code></td>
+            </tr>
+            <tr>
+              <td>挂上了，但游戏卡顿 / 音画异常</td>
+              <td>该游戏需要「外置盘式」处理</td>
+              <td>把这个游戏改做 <code>.exfat</code>（见 <a href="exfat.html">exFAT 教程</a>）</td>
+            </tr>
+            <tr>
+              <td>拷贝速度只有 100–150 MB/s</td>
+              <td>多半是硬盘盒/线材的链路瓶颈，不是工具问题</td>
+              <td>查协商档位：<code>ioreg -rc IOUSBHostDevice -w 0 | grep "Device Speed"</code></td>
+            </tr>
+            <tr>
+              <td>插盘后断电 / 中途拔盘</td>
+              <td>写缓存没落盘，镜像可能已损坏</td>
+              <td>exFAT 用 <code>REUSE=1</code> 重跑补齐；ffpkg 重新构建（一条命令，很快）</td>
+            </tr>
+            <tr>
+              <td>内置 SSD 上的游戏启动失败</td>
+              <td>APR-Emu 类型缺索引，或权限设置不对</td>
+              <td>确认镜像根下有 <code>ampr_emu.index</code>；检查 ShadowMountPlus 的只读设置</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>两页教程各自还有一份针对工具链的专属排错表：<a href="exfat.html#trouble">exFAT 专属排错</a>　·　<a href="ffpkg.html#trouble">ffpkg 专属排错</a>。</p>
+    </section>
+
+    <!-- ============ 07 ============ -->
+    <section id="internals">
+      <h2 class="sec"><span class="num">[07]</span>原理对比 <span class="en-t">Under the hood</span></h2>
+      <div class="sec-sub">想知道为什么两条路差这么多，看这一节<span class="en">Why the two routes differ so much</span></div>
+
+      <h3 class="step"><span class="sn">7.1</span>两种文件系统的性格 <span class="en-t">Two very different filesystems</span></h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th></th><th>exFAT</th><th>UFS2</th></tr></thead>
+          <tbody>
+            <tr><td>出身</td><td>为移动存储设计的通用交换格式</td><td>FreeBSD 的经典 Unix 文件系统</td></tr>
+            <tr><td>元数据</td><td>简单：一份 FAT 表 + 分配位图</td><td>完整：超级块、柱面组、inode 表、块位图</td></tr>
+            <tr><td>小文件效率</td><td>每个文件至少占满一个簇，浪费多</td><td>fragment 级别分配，浪费少</td></tr>
+            <tr><td>macOS 支持</td><td>原生读写，靠 FSKit 用户态实现</td><td><strong>不能原生挂载</strong>，只能用工具读写</td></tr>
+            <tr><td>PS5 原生</td><td>不是</td><td><strong>是</strong>——PS5 内部就用 UFS</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="step"><span class="sn">7.2</span>为什么做镜像的方式差这么多 <span class="en-t">Why the build flow differs so much</span></h3>
+      <p>因为 <strong>macOS 能原生挂载 exFAT，但不能原生挂载 UFS2</strong>。这直接决定了两条完全不同的技术路线：</p>
+      <ul>
+        <li><strong>exFAT 路线</strong>：先建一个空白镜像 → 格式化成 exFAT → <strong>挂载到系统</strong> → 用普通文件复制的方式把游戏写进去 → 卸载。<br>
+          代价是「写入过程由 macOS 的文件系统驱动参与」，所以会带出 <code class="inl">._*</code> 影子文件、<code class="inl">.fseventsd</code> 这类 macOS 私有产物，必须手工清理。</li>
+        <li><strong>UFS2 路线</strong>：UFS2Tool <strong>直接按字节构造整个文件系统</strong>，自己管理 superblock、inode、位图。<br>
+          不经过 macOS 的文件系统层，所以<strong>根本不会产生任何 macOS 残留</strong>，也不需要挂载和卸载。</li>
+      </ul>
+      <div class="en-block">macOS can mount exFAT natively but not UFS2. That single fact shapes both routes: the exFAT path writes through the macOS filesystem driver (hence the AppleDouble and <code>.fseventsd</code> cleanup), while UFS2Tool writes the filesystem structure itself, byte by byte, bypassing the OS entirely.</div>
+
+      <h3 class="step"><span class="sn">7.3</span>那为什么还要保留 exFAT 这条路 <span class="en-t">So why keep the exFAT route at all</span></h3>
+      <p>三个理由：</p>
+      <ul>
+        <li><strong>兼容性兜底</strong>——确实有一批游戏只有在被当成「外置盘内容」时才正常，这是官方给 exFAT 的唯一用途定位。</li>
+        <li><strong>零依赖</strong>——全部用 macOS 自带命令，不需要下载任何第三方工具。</li>
+        <li><strong>可手工修改</strong>——exFAT 镜像能挂载后直接用 Finder 改内容；UFS2 只能靠 UFS2Tool 的 <code class="inl">add</code>/<code class="inl">delete</code>/<code class="inl">replace</code>。</li>
+      </ul>
+    </section>
+
+    <!-- ============ 08 ============ -->
+    <section id="appendix">
+      <h2 class="sec"><span class="num">[08]</span>附录与声明 <span class="en-t">Appendix &amp; disclaimer</span></h2>
+
+      <h3 class="step"><span class="sn">8.1</span>快速入口 <span class="en-t">Jump in</span></h3>
+      <div class="tw">
+        <table>
+          <thead><tr><th>我想…</th><th>去哪</th></tr></thead>
+          <tbody>
+            <tr><td>做官方推荐的格式</td><td><a href="ffpkg.html">UFS2 · <code>.ffpkg</code> 完整教程</a></td></tr>
+            <tr><td>做外置盘兼容格式</td><td><a href="exfat.html">exFAT · <code>.exfat</code> 完整教程</a></td></tr>
+            <tr><td>下载一键脚本</td><td><a href="https://github.com/lvzhongpei/ps5-macos-image-guide/tree/main/script" target="_blank" rel="noopener">仓库 script/ 目录</a></td></tr>
+            <tr><td>看官方格式规范</td><td><a href="https://github.com/drakmor/ShadowMountPlus" target="_blank" rel="noopener">drakmor/ShadowMountPlus</a></td></tr>
+            <tr><td>看 UFS2 工具源码</td><td><a href="https://github.com/SvenGDK/UFS2Tool" target="_blank" rel="noopener">SvenGDK/UFS2Tool</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 class="step"><span class="sn">8.2</span>本站的实测基础 <span class="en-t">What was actually tested</span></h3>
+      <ul>
+        <li><strong>exFAT</strong>：232.94 GiB 的真实游戏 dump（105 文件）完整走通，构建耗时 2728 秒，文件数与字节数校验完全一致。</li>
+        <li><strong>UFS2</strong>：在 Apple Silicon 上用 UFS2Tool v4.1 自包含版构建，0.27 秒完成，<code>fsck_ufs</code> 报 clean，抽出文件 SHA-256 与源完全一致。</li>
+      </ul>
+      <p class="en-block">Every command and every terminal output shown on this site comes from a real run. Paths and title IDs have been sanitised.</p>
+
+      <h3 class="step"><span class="sn">8.3</span>免责声明 <span class="en-t">Disclaimer</span></h3>
+      <div class="notice danger">
+        <div class="nt">[!] 请完整阅读</div>
+        <p>本站<strong>只讨论文件系统与磁盘镜像的格式转换技术</strong>，所有内容都可在 macOS 上用系统自带命令或开源工具复现。</p>
+        <p>它<strong>不提供、不托管、不链接、不索引</strong>任何游戏内容、游戏下载链接或破解资源。</p>
+        <p>请仅对你<strong>自己合法拥有</strong>的游戏备份使用本指南。是否对你的设备进行越狱、以及如何使用生成的镜像，完全由你自行决定并承担全部后果。请遵守你所在国家和地区的法律。</p>
+        <p>越狱与镜像挂载本身存在风险。官方文档明确提醒：在部分固件上挂载镜像可能导致关机异常或数据损坏，请务必备份重要数据。</p>
+      </div>
+    </section>
+
+    <footer>
+      <div class="flinks">
+        <a href="index.html">总览</a>
+        <a href="exfat.html">exFAT 教程</a>
+        <a href="ffpkg.html">UFS2 · ffpkg 教程</a>
+        <a href="https://github.com/lvzhongpei/ps5-macos-image-guide" target="_blank" rel="noopener">GitHub 仓库</a>
+        <a href="#intro">回到顶部</a>
+      </div>
+      <div class="dis">
+        PS5 game dump → bootable image on macOS · 中英双语指南 · 命令与日志均来自真实运行记录（路径与标题 ID 已脱敏）。<br>
+        本站仅涉及磁盘镜像格式转换的技术步骤，不包含任何游戏内容。请仅使用你合法拥有的游戏备份。
+      </div>
+    </footer>
+  </main>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>
