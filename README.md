@@ -74,7 +74,37 @@ chmod +x ~/bin/smp-exfat-to-ffpkg.sh
 
 > **源文件的 mtime 会变，这是正常的**：macOS 在 attach 磁盘镜像时会更新源文件的修改时间，纯只读挂载也一样。**文件内容与大小不变**（实测：转换前后 366 个文件的字节总数与 `eboot.bin` 的 SHA-256 逐位一致）。想自己验证就转换前后各跑一次 `shasum -a 256`。
 
-> **注意体积**：UFS2Tool 的自动尺寸会额外加约 13.5% 的元数据开销，所以转出来的 `.ffpkg` **可能比原来的 `.exfat` 更大**（实测一个 600 MiB 的镜像转成 668 MiB）。格式本身仍优于 exFAT（随机读性能、元数据更规整），但如果你在意的是省空间，这一步不一定划算。
+> **⚠️ 关于体积（这里有个反直觉的真相）**：UFS2Tool 的自动尺寸会在内容基础上加**固定 10%**（官方文档原话：*"plus 10% overhead for filesystem metadata"*），再向上取整到整柱面组，所以 `.ffpkg` 的**表观大小**会比 `.exfat` 大。
+>
+> 但实测**磁盘实际占用只增加不到 1%** —— 因为 UFS2Tool 采用**稀疏写入**，卷内空闲区域根本不落盘。以 233.5 GiB 的源为例：表观 250.7 GB → 275.2 GB（**+9.8%**），而实占 250.1 GB → 252.5 GB（**+0.94%**）。多出的 2.3 GB 几乎正好是 inode 表（UFS2Tool 会为 105 个文件预留 840 万个 inode）。
+>
+> **但稀疏性很容易被破坏**：`cp`（macOS 默认）、网络传输、以及目标盘为 FAT/exFAT 时都不保留空洞，目标处会膨胀到完整表观大小。要保留请用 `rsync -S` / `--sparse`。**如果最终要放到 PS5 用的 exFAT 盘上，请按完整的表观大小准备空间。**
+
+### 校验：确认镜像和源头一致
+
+做完镜像后建议跑一次校验：
+
+```bash
+curl -fsSL -o ~/bin/smp-verify-ffpkg.sh \
+  https://raw.githubusercontent.com/lvzhongpei/ps5-macos-image-guide/main/script/smp-verify-ffpkg.sh
+chmod +x ~/bin/smp-verify-ffpkg.sh
+
+~/bin/smp-verify-ffpkg.sh /Volumes/MYSSD/homebrew/PPSA12345.ffpkg \
+                          /Volumes/MYSSD/homebrew/PPSA12345.exfat
+```
+
+源头可以是 `.exfat` 镜像（自动只读挂载）也可以是游戏文件夹，**两个参数顺序不限**。脚本分四层校验：
+
+| 层次 | 方法 | 能证明什么 |
+|---|---|---|
+| 文件系统 | `fsck_ufs -fn` | 超级块、inode、位图、块链一致 |
+| 条目数 | fsck 计数 vs 源头 | 没有丢文件或目录 |
+| **路径 + 大小** | `UFS2Tool find '*'` 逐条比对 | 每个文件都在正确路径、字节数一致（不读数据，秒级） |
+| **内容哈希** | 逐个 `extract` + SHA-256 | 每个小于 2 GiB 的文件逐位一致 |
+
+> **⚠️ 2 GiB 上限**：UFS2Tool 的 `extract` 会把整个文件读进内存，**超过 2,147,483,647 字节一律拒绝**（整盘抽取也一样，会在第一个大文件处中止）。所以大游戏里那些几十 GB 的 `.ucas` / `.pak` **无法做内容校验** —— 脚本会明确报告有多少数据没能校验。**这些文件只能在真机上验证。**
+
+`QUICK=1` 跳过内容哈希（只做前两层，秒级），`MAX_HASH_MIB=<n>` 给内容哈希设总量上限。**发现任何差异时退出码为 1**，可直接嵌入脚本。
 
 支持 `REUSE=1` 断点续传。**全程只用 macOS 自带命令。**
 
@@ -91,7 +121,8 @@ chmod +x ~/bin/smp-exfat-to-ffpkg.sh
 ├── script/
 │   ├── smp-mkffpkg.sh         UFS2 (.ffpkg) 构建脚本
 │   ├── smp-mkexfat.sh         exFAT (.exfat) 构建脚本
-│   └── smp-exfat-to-ffpkg.sh  已有 .exfat → .ffpkg 格式转换
+│   ├── smp-exfat-to-ffpkg.sh  已有 .exfat → .ffpkg 格式转换
+│   └── smp-verify-ffpkg.sh    校验 .ffpkg 与源头是否一致
 └── .nojekyll
 ```
 
