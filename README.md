@@ -138,4 +138,4 @@ chmod +x ~/bin/smp-exfat-to-ffpkg.sh
 
 ---
 
-<sub>站内教程与终端输出均来自真实运行记录（exFAT 路线实测 232.94 GiB / 105 文件；UFS2 路线在 Apple Silicon 上实测构建 + fsck + 哈希比对），路径与标题 ID 已脱敏。</sub>
+<sub>站内教程与终端输出均来自真实运行记录（exFAT 路线实测 232.94 GiB / 105 文件；UFS2 路线在 Apple Silicon 上实测构建 + fsck + 哈希比对；<code>.exfat</code> → <code>.ffpkg</code> 格式互转已实测并在真机挂载验证通过），路径与标题 ID 已脱敏。</sub>

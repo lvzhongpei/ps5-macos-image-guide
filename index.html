@@ -624,6 +624,7 @@ shasum       /usr/bin/shasum</span></code></pre>
           <tbody>
             <tr><td>做官方推荐的格式</td><td><a href="ffpkg.html">UFS2 · <code>.ffpkg</code> 完整教程</a></td></tr>
             <tr><td>做外置盘兼容格式</td><td><a href="exfat.html">exFAT · <code>.exfat</code> 完整教程</a></td></tr>
+            <tr><td>把已有的 <code>.exfat</code> 转成 <code>.ffpkg</code></td><td><a href="https://github.com/lvzhongpei/ps5-macos-image-guide/tree/main/script" target="_blank" rel="noopener">script/smp-exfat-to-ffpkg.sh</a>（用法见仓库 README）</td></tr>
             <tr><td>下载一键脚本</td><td><a href="https://github.com/lvzhongpei/ps5-macos-image-guide/tree/main/script" target="_blank" rel="noopener">仓库 script/ 目录</a></td></tr>
             <tr><td>看官方格式规范</td><td><a href="https://github.com/drakmor/ShadowMountPlus" target="_blank" rel="noopener">drakmor/ShadowMountPlus</a></td></tr>
             <tr><td>看 UFS2 工具源码</td><td><a href="https://github.com/SvenGDK/UFS2Tool" target="_blank" rel="noopener">SvenGDK/UFS2Tool</a></td></tr>
@@ -635,6 +636,7 @@ shasum       /usr/bin/shasum</span></code></pre>
       <ul>
         <li><strong>exFAT</strong>：232.94 GiB 的真实游戏 dump（105 文件）完整走通，构建耗时 2728 秒，文件数与字节数校验完全一致。</li>
         <li><strong>UFS2</strong>：在 Apple Silicon 上用 UFS2Tool v4.1 自包含版构建，0.27 秒完成，<code>fsck_ufs</code> 报 clean，抽出文件 SHA-256 与源完全一致。</li>
+        <li><strong>格式互转（<code>.exfat</code> → <code>.ffpkg</code>）</strong>：以只读挂载直读的方式转换，构建 1 秒，<code>fsck_ufs</code> clean，条目数 392/392 一致，全量解包比对 366 文件 / 617,376,960 字节与源逐位相同，<strong>并已在真机挂载验证可正常游玩</strong>。</li>
       </ul>
       <p class="en-block">Every command and every terminal output shown on this site comes from a real run. Paths and title IDs have been sanitised.</p>
 
