@@ -58,6 +58,22 @@ chmod +x ~/bin/smp-mkexfat.sh
   "/Volumes/MYSSD/homebrew/PPSA12345.exfat"
 ```
 
+### 格式互转：已有的 `.exfat` → `.ffpkg`
+
+如果手上已经有一个做好的 `.exfat` 镜像，**不需要重新打包游戏**：
+
+```bash
+curl -fsSL -o ~/bin/smp-exfat-to-ffpkg.sh \
+  https://raw.githubusercontent.com/lvzhongpei/ps5-macos-image-guide/main/script/smp-exfat-to-ffpkg.sh
+chmod +x ~/bin/smp-exfat-to-ffpkg.sh
+
+~/bin/smp-exfat-to-ffpkg.sh /Volumes/MYSSD/homebrew/PPSA12345.exfat
+```
+
+原理：macOS 能原生挂载 exFAT，所以直接把**只读挂载的卷**交给 UFS2Tool 当输入目录——不解包、不产生中间副本、**源镜像全程只读、不会被改动或删除**。脚本会自动校验结构、扫描 macOS 垃圾文件、跑 `fsck_ufs` 自检，并在源小于 2 GiB 时额外做一次全量解包比对。
+
+> **注意体积**：UFS2Tool 的自动尺寸会额外加约 13.5% 的元数据开销，所以转出来的 `.ffpkg` **可能比原来的 `.exfat` 更大**（实测一个 600 MiB 的镜像转成 668 MiB）。格式本身仍优于 exFAT（随机读性能、元数据更规整），但如果你在意的是省空间，这一步不一定划算。
+
 支持 `REUSE=1` 断点续传。**全程只用 macOS 自带命令。**
 
 ## 仓库结构
@@ -71,8 +87,9 @@ chmod +x ~/bin/smp-mkexfat.sh
 │   ├── style.css       三个页面共用样式（终端/极客风，深色默认 + 浅色切换）
 │   └── app.js          主题 / 中英切换 / 复制按钮 / 决策器 / 尺寸计算器
 ├── script/
-│   ├── smp-mkffpkg.sh  UFS2 (.ffpkg) 构建脚本
-│   └── smp-mkexfat.sh  exFAT (.exfat) 构建脚本
+│   ├── smp-mkffpkg.sh         UFS2 (.ffpkg) 构建脚本
+│   ├── smp-mkexfat.sh         exFAT (.exfat) 构建脚本
+│   └── smp-exfat-to-ffpkg.sh  已有 .exfat → .ffpkg 格式转换
 └── .nojekyll
 ```
 
