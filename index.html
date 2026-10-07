@@ -85,8 +85,8 @@
       <h2 class="sec"><span class="num">[01]</span>这是什么 <span class="en-t">What this is about</span></h2>
       <div class="sec-sub">先搞清楚「镜像」在这里到底指什么<span class="en">What an "image" actually is in this context</span></div>
 
-      <p>PS5 越狱环境里，游戏备份有三种常见形态。ShadowMountPlus 会自动扫描并挂载它们，但三种形态的适用场景并不相同：</p>
-      <div class="en-block">ShadowMountPlus, the background auto-mounter for jailbroken PS5 consoles, can handle three kinds of game backups. They are not interchangeable.</div>
+      <p>PS5 越狱环境里，游戏备份有<strong>五种</strong>形态，其中前三种是你实际会用到的。ShadowMountPlus 会自动扫描并挂载它们，但适用场景并不相同：</p>
+      <div class="en-block">ShadowMountPlus handles five kinds of game backups. The first three are the ones you will actually use — they are not interchangeable.</div>
 
       <div class="tw">
         <table>
@@ -101,7 +101,7 @@
             <tr>
               <td><code>.ffpkg</code><br><span style="color:var(--text-faint);font-size:12px">UFS2 镜像</span></td>
               <td>单个文件，内部是 UFS2 文件系统</td>
-              <td>内置 SSD / 外置盘都可以</td>
+              <td>主机盘 / M.2 / 外置盘都可以</td>
               <td><span class="fchip rec">推荐</span> 常规首选</td>
             </tr>
             <tr>
@@ -109,6 +109,18 @@
               <td>单个文件，内部是 exFAT 文件系统</td>
               <td>外置盘</td>
               <td><span class="fchip compat">兼容场景</span> 仅当需要「外置盘式」处理时</td>
+            </tr>
+            <tr>
+              <td><code>.ffpfs</code><br><span style="color:var(--text-faint);font-size:12px">PFS 镜像</span></td>
+              <td>单个文件，内部是索尼自家的 PFS 文件系统</td>
+              <td>要装 MkPFS，见 <a href="#pfs">3.4</a></td>
+              <td><span class="fchip">实验性</span> 未压缩</td>
+            </tr>
+            <tr>
+              <td><code>.ffpfsc</code><br><span style="color:var(--text-faint);font-size:12px">压缩 PFS 容器</span></td>
+              <td>压缩过的 PFS 容器，里面<strong>套着</strong>另一个镜像</td>
+              <td>要装 MkPFS，见 <a href="#pfs">3.4</a></td>
+              <td><span class="fchip">实验性</span> 省空间但慢</td>
             </tr>
           </tbody>
         </table>
@@ -235,6 +247,55 @@
       </div>
     </section>
 
+      <h3 class="step" id="pfs"><span class="sn">3.4</span>另外两种实验性格式 <span class="en-t">The two experimental formats</span></h3>
+      <p>ShadowMountPlus 实际支持<strong>五种</strong>形态，上面只覆盖了你会用到的三种。剩下两种围绕 <strong>PFS</strong>（PlayStation FileSystem，索尼自家的文件系统），官方都标着 <strong>Experimental</strong>。</p>
+      <div class="en-block">Two more formats exist, both PFS-based and both marked <strong>Experimental</strong>. They are not a "better version" of <code>.ffpkg</code> — they trade speed for space.</div>
+
+      <div class="tw">
+        <table>
+          <thead><tr><th>扩展名</th><th>内部文件系统</th><th>挂载后端</th><th>官方状态</th><th>压缩</th></tr></thead>
+          <tbody>
+            <tr><td><code>.ffpkg</code></td><td>UFS2</td><td>LVD 或 MD（可配）</td><td><span class="yes">Recommended</span></td><td>无</td></tr>
+            <tr><td><code>.exfat</code></td><td>exFAT</td><td>LVD 或 MD（可配）</td><td><span class="mid">兼容场景</span></td><td>无</td></tr>
+            <tr><td><code>.ffpfs</code></td><td>PFS</td><td>仅 LVD</td><td><span class="mid">Experimental</span></td><td>无</td></tr>
+            <tr><td><code>.ffpfsc</code></td><td>PFS 容器</td><td>仅 LVD</td><td><span class="mid">Experimental</span></td><td><strong>zLib</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>默认扇区大小也不一样：UFS 是 <code class="inl">4096</code>、PFS 是 <code class="inl">32768</code>、exFAT 是 <code class="inl">512</code>。</p>
+
+      <p><strong><code class="inl">.ffpfsc</code> 用起来有三个硬性限制：</strong></p>
+      <ul>
+        <li><strong>它只能当「外壳」。</strong>官方原话：<em>"Compressed PFS mode is intended only for nested images."</em> 并明确要求 <em>"Do not place game files directly in the container root."</em> 打包时数据会被零填充到 <strong>64 KB 扇区边界</strong>，所以它天生是个容器——里面要套另一个镜像，官方推荐<strong>套 exFAT 镜像</strong>。</li>
+        <li><strong>它会明显降速，这是最重要的取舍。</strong>解压虽然由硬件加速，但吞吐只有约 <strong>150–250 MB/s</strong>。官方说这大约是外置 USB / FFPKG / exFAT 镜像的 <strong>1/3</strong>，是<strong>内置盘速度的约 1/10</strong>。「大量读取数据或持续流式加载贴图」的游戏会卡顿，官方建议<strong>挑游戏来压</strong>。</li>
+        <li><strong>直接把文件夹打成 PFS 有个已知坑。</strong>启用压缩时镜像能建好、校验也能过，但<strong>主机读取文件是错误的</strong>。官方说这个高级选项「对游戏备份没有实际好处」，让用默认的 exFAT 包裹布局。</li>
+      </ul>
+
+      <p>制作这两种格式要用 <a href="https://github.com/PSBrew/MkPFS" target="_blank" rel="noopener">PSBrew/MkPFS</a>（GPL-3.0，Python，<strong>Windows / macOS / Linux 都支持</strong>，Apple Silicon 是明确支持路径）。它的默认输出就是官方认为最稳的「exFAT 包在压缩 PFS 里」布局：</p>
+      <div class="code">
+        <div class="code-head"><span class="lang">bash</span><span class="cap">MkPFS 基本用法，macOS 同样适用</span><button class="copy">copy</button></div>
+<pre class="cmd"><code><span class="cmt"># 安装（带 GUI）</span>
+python3 -m pip install -U "mkpfs[gui]"
+
+<span class="cmt"># 游戏目录 → .ffpfsc（默认 exFAT 包裹，官方称最稳的压缩布局）</span>
+python3 -m mkpfs pack folder './PPSA12345-app' './PPSA12345.ffpfsc'
+
+<span class="cmt"># 已有镜像 → .ffpfsc</span>
+python3 -m mkpfs pack file './PPSA12345.exfat' './PPSA12345.ffpfsc'
+
+<span class="cmt"># 未压缩的直接 PFS</span>
+python3 -m mkpfs pack folder --raw './PPSA12345-app/' './PPSA12345.ffpfs'
+
+<span class="cmt"># 反向解包</span>
+python3 -m mkpfs unpack --deep './PPSA12345.ffpfsc' './out/'</code></pre>
+      </div>
+
+      <div class="notice">
+        <div class="nt">[!] 结论：除非你明确要省空间，否则别碰这两种</div>
+        <p><code class="inl">.ffpkg</code> 官方推荐、速度快、一条命令做好。<code class="inl">.ffpfsc</code> 唯一的优势是省空间，代价是约 1/10 的内置盘读取速度，而且官方还标着实验性。</p>
+        <p>适合压的是<strong>体积大、但读取强度低</strong>的游戏（老游戏、剧情向）；需要持续读盘的 3A 大作不要压。另外 <code class="inl">--block-size</code> 默认 <code class="inl">65536</code>，小文件多的目录会产生块对齐浪费，极端情况下<strong>镜像比源还大</strong>——官方建议改用两遍法或降到 <code class="inl">16384</code>/<code class="inl">32768</code>。</p>
+      </div>
+
     <!-- ============ 04 ============ -->
     <section id="before">
       <h2 class="sec"><span class="num">[04]</span>开始前的检查 <span class="en-t">Before you start</span></h2>
@@ -334,17 +395,34 @@ shasum       /usr/bin/shasum</span></code></pre>
       <div class="sec-sub">两种格式的部署方式完全一样<span class="en">Deployment is identical for both formats</span></div>
 
       <h3 class="step"><span class="sn">5.1</span>放对位置 <span class="en-t">Put it in the right place</span></h3>
-      <p>ShadowMountPlus 会自动扫描几个固定路径。按你用的是外置盘还是内置 SSD 选：</p>
+      <p>ShadowMountPlus 会自动扫描一组固定路径，覆盖主机内置、M.2 扩展槽和外接盘。按你要放在哪块存储上选：</p>
       <div class="tw">
         <table>
-          <thead><tr><th>存储</th><th>推荐路径</th><th>说明</th></tr></thead>
+          <thead><tr><th>放在哪块盘</th><th>放哪个目录</th><th>说明</th></tr></thead>
           <tbody>
-            <tr><td>外置 USB 盘 / HDD / SSD</td><td><code>/mnt/usb0/homebrew/</code><br><code>/mnt/ext0/homebrew/</code></td><td>把镜像丢进盘根的 <code>homebrew/</code> 目录即可</td></tr>
-            <tr><td>PS5 内置存储</td><td><code>/data/homebrew/</code><br><code>/data/etaHEN/games/</code></td><td>通过 FTP 上传，适合常用游戏</td></tr>
+            <tr>
+              <td>PS5 <strong>主机自带硬盘</strong><br><span style="color:var(--text-faint);font-size:12px">焊死的那块</span></td>
+              <td><code>/data/homebrew/</code><br><code>/data/etaHEN/games/</code></td>
+              <td>官方文档里叫 internal storage</td>
+            </tr>
+            <tr>
+              <td>PS5 <strong>内置 M.2 扩展槽</strong><br><span style="color:var(--text-faint);font-size:12px">你自己加的那块</span></td>
+              <td><code>/mnt/ext1/homebrew/</code><br><code>/mnt/ext1/etaHEN/games/</code></td>
+              <td><span class="yes">加载速度最快</span>；文件要靠 FTP 或 U 盘中转，见 5.2</td>
+            </tr>
+            <tr>
+              <td><strong>USB 外接盘</strong><br><span style="color:var(--text-faint);font-size:12px">含 M.2 硬盘盒</span></td>
+              <td><code>/mnt/usb0/homebrew/</code> … <code>/mnt/usb7/homebrew/</code><br><code>/mnt/ext0/homebrew/</code></td>
+              <td>最方便，在 Mac 上直接拷进去就行</td>
+            </tr>
           </tbody>
         </table>
       </div>
-      <div class="tree"><span class="x">外置盘根目录</span>
+      <div class="notice info">
+        <div class="nt">[i] 别搞混「两块 M.2」</div>
+        <p><strong>M.2 插进 PS5 主机的扩展槽</strong> → 走 <code class="inl">/mnt/ext1/</code>；<strong>M.2 装进硬盘盒当 USB 外接用</strong> → 走 <code class="inl">/mnt/usb0/</code>。两者路径完全不同。</p>
+      </div>
+      <div class="tree"><span class="x">外置盘根目录（内置盘与 M.2 结构一样，只是挂载点不同）</span>
 <span class="d">MYSSD/</span>
 └── <span class="d">homebrew/</span>
     ├── <span class="k">PPSA12345.ffpkg</span>        <span class="x">← UFS2 镜像</span>
@@ -359,7 +437,39 @@ shasum       /usr/bin/shasum</span></code></pre>
            3. 外置盘本身没格式化成 exFAT——普通 exFAT 盘就行，<strong>不需要</strong>格成 PS5 专用扩展存储。</p>
       </div>
 
-      <h3 class="step"><span class="sn">5.2</span>PS5 端需要的两个 payload <span class="en-t">The two payloads you need</span></h3>
+      <h3 class="step"><span class="sn">5.2</span>文件怎么进到内置盘 / M.2 里 <span class="en-t">Getting files onto internal storage</span></h3>
+      <p>外置盘可以在 Mac 上直接拷，但<strong>主机自带硬盘和 M.2 都不行</strong>——它们由 PS5 用自己的独占格式管理，<strong>Mac 根本读不了</strong>。所以顺序是反过来的：</p>
+      <ol>
+        <li><strong>先把 M.2 装进 PS5 并由主机格式化</strong>：设置 → 存储 → M.2 SSD → 格式化。<strong>没做过这一步，<code class="inl">/mnt/ext1</code> 根本不存在。</strong></li>
+        <li><strong>越狱并加载 payload</strong>（Kstuff + ShadowMountPlus）。etaHEN 这类环境通常自带 FTP 服务。</li>
+        <li><strong>把镜像传进目标目录</strong>——两条路选一条：</li>
+      </ol>
+      <div class="tw">
+        <table>
+          <thead><tr><th>方法</th><th>怎么做</th><th>适合</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>FTP 直传</strong></td>
+              <td>在 Mac 上用 FileZilla / Cyberduck 连 PS5 的 FTP，传到 <code>/mnt/ext1/homebrew/</code></td>
+              <td>方便，但走网络；200 GB 要传很久，务必用<strong>支持断点续传</strong>的客户端</td>
+            </tr>
+            <tr>
+              <td><strong>U 盘中转</strong></td>
+              <td>先在 Mac 上拷到 USB 盘 → 插到 PS5 → 用文件管理器类 homebrew 把它移到 <code>/mnt/ext1/homebrew/</code></td>
+              <td><span class="yes">大文件更快</span>（USB 3 直拷）；代价是要挪两次</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="en-block">Both the console storage and the M.2 are managed by the PS5's own format, so you cannot pre-load them from a Mac. Install and format the M.2 in the console first, then transfer over FTP or via a USB drive.</p>
+      <div class="notice danger">
+        <div class="nt">[X] M.2 三个常见错误</div>
+        <p>1. 没在 PS5 上格式化过 M.2——<code class="inl">/mnt/ext1</code> 不存在，传了也没用。<br>
+           2. 传到了 <code class="inl">/mnt/ext1/</code> 根目录，而不是 <code class="inl">homebrew/</code> 子目录。<br>
+           3. 把「M.2 插在主机里」和「M.2 装在硬盘盒里」搞混——前者是 <code class="inl">/mnt/ext1/</code>，后者是 <code class="inl">/mnt/usb0/</code>。</p>
+      </div>
+
+      <h3 class="step"><span class="sn">5.3</span>PS5 端需要的两个 payload <span class="en-t">The two payloads you need</span></h3>
       <div class="tw">
         <table>
           <thead><tr><th>组件</th><th>作用</th><th>版本要求</th></tr></thead>
@@ -371,7 +481,7 @@ shasum       /usr/bin/shasum</span></code></pre>
       </div>
       <p class="en-block">Installation and injection of these payloads is outside the scope of this guide — follow each project's own README and release notes.</p>
 
-      <h3 class="step"><span class="sn">5.3</span>确认挂载成功 <span class="en-t">Confirm the mount</span></h3>
+      <h3 class="step"><span class="sn">5.4</span>确认挂载成功 <span class="en-t">Confirm the mount</span></h3>
       <ul>
         <li>屏幕上会出现一张 toast 通知，提示发现并挂载了镜像。</li>
         <li>回到 PS5 主界面，游戏会出现在<strong>游戏库</strong>里，图标和标题正常显示。</li>
@@ -383,8 +493,10 @@ shasum       /usr/bin/shasum</span></code></pre>
       </div>
 
       <div class="notice">
-        <div class="nt">[!] 官方提醒：挂载镜像本身有风险</div>
-        <p>官方文档明确写过，<strong>挂载镜像在部分旧固件上可能导致关机异常或数据损坏</strong>，越老的固件越常见。重要数据务必备份，并先用不重要的游戏做测试。</p>
+        <div class="nt">[!] 官方提醒：在内置盘上挂载镜像风险更高</div>
+        <p>ShadowMountPlus 的 README 开头就写着：</p>
+        <p style="color:var(--text);border-left:2px solid var(--border);padding-left:12px;margin-top:10px">Warning! Mounting images can cause shutdown problems and data corruption on <strong>internal drives</strong>! This depends on many factors, but is more common with <strong>older firmware versions</strong>.</p>
+        <p>也就是说<strong>内置存储（主机盘和 M.2）比外置盘更容易出问题，老固件尤其明显</strong>。好消息是缓解手段默认就开着：<code class="inl">mount_read_only=1</code> 的默认值就是 <code class="inl">1</code>，镜像默认只读挂载——<strong>别去关它</strong>。老固件上先用不重要的游戏试，重要数据务必先备份。</p>
       </div>
     </section>
 

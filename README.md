@@ -25,6 +25,8 @@ ShadowMountPlus 官方把 **UFS2（`.ffpkg`）列为推荐格式**，把 `exFAT`
 
 **默认走 `.ffpkg`。** 只有当某个游戏确实「只有按外置盘方式处理才正常」时，才为它改做 `.exfat`。
 
+> **其实还有两种格式**：`.ffpfs`（未压缩 PFS 镜像）和 `.ffpfsc`（压缩 PFS 容器），官方都标着 **Experimental**。它们不是 `.ffpkg` 的升级版，而是「用速度换空间」——`.ffpfsc` 的读取吞吐只有约 150–250 MB/s，**约为内置盘速度的 1/10**，适合体积大但读取强度低的游戏。制作要用 [PSBrew/MkPFS](https://github.com/PSBrew/MkPFS)（Python，macOS 可用）。详见教程 [3.4 节](https://lvzhongpei.github.io/ps5-macos-image-guide/index.html#pfs)。
+
 教程首页有一个**交互式决策器**，三个问题直接给结论：[lvzhongpei.github.io/ps5-macos-image-guide](https://lvzhongpei.github.io/ps5-macos-image-guide/)
 
 ## 快速开始
@@ -81,7 +83,13 @@ chmod +x ~/bin/smp-mkexfat.sh
 | **exFAT 必须用 64 KiB 簇** | 官方 README：*"If you create an exFAT (.exfat) image manually, use a 64 KB cluster size. Smaller clusters can cause a noticeable performance loss."* |
 | **目录不多套一层** | 游戏根下必须直接是 `eboot.bin` 与 `sce_sys/param.json`。多一层子目录 PS5 就识别不到。 |
 
-镜像做好后放进 `<盘根>/homebrew/`（外置盘）或 `/data/homebrew/`（内置存储），具体见教程第 05 节。
+| 放在哪块盘 | 放哪个目录 |
+|---|---|
+| PS5 主机自带硬盘 | `/data/homebrew/` |
+| PS5 内置 M.2 扩展槽 | `/mnt/ext1/homebrew/` |
+| USB 外接盘（含 M.2 硬盘盒） | `/mnt/usb0/homebrew/` |
+
+注意：**主机盘和 M.2 由 PS5 用自己的独占格式管理，Mac 读不了**——要先把 M.2 装进 PS5 并由主机格式化，再用 FTP 或 U 盘中转传文件，不能像外置盘那样直接从 Mac 拷。详见教程第 05 节。
 
 ## 踩过的坑（都写在教程里）
 
@@ -91,6 +99,7 @@ chmod +x ~/bin/smp-mkexfat.sh
 - `rsync` 加 `-ltDHh` 会触发 AppleDouble `._*` 影子文件，用官方的 `rsync -r` 反而干净
 - `.fseventsd` / `.Trashes` 无法根除，删除顺序有讲究
 - ShadowMountPlus 仓库里的 `mkufs2.sh` 是 **FreeBSD 专用**，macOS 上不能跑
+- MkPFS 的 `--block-size` 默认 `65536`，小文件多的目录会产生块对齐浪费，极端情况下镜像比源还大
 
 ## 参考资料
 
@@ -106,7 +115,7 @@ chmod +x ~/bin/smp-mkexfat.sh
 
 请仅对你**自己合法拥有**的游戏备份使用本项目。是否对你的设备进行越狱、以及如何使用生成的镜像，完全由你自行决定并承担全部后果。请遵守你所在国家和地区的法律。
 
-越狱与镜像挂载本身存在风险。官方文档明确提醒：在部分固件上挂载镜像可能导致关机异常或数据损坏，请务必备份重要数据。
+越狱与镜像挂载本身存在风险。官方原文提醒：*"Mounting images can cause shutdown problems and data corruption on **internal drives**"* ——**内置存储（主机盘和 M.2）比外置盘更容易出问题，老固件尤其明显**。缓解手段是默认开启的 `mount_read_only=1`（别关掉），并请务必先备份重要数据。
 
 ---
 
