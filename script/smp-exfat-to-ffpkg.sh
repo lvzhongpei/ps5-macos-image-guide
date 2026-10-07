@@ -150,9 +150,14 @@ MNT=$(mount | grep "^$DEV " | sed 's/.* on \(.*\) (.*/\1/')
 [ -n "$MNT" ] || fail "无法确定挂载点 / cannot determine mount point"
 echo "挂载点 mount : $MNT"
 case "$(mount | grep "^$DEV ")" in
-    *read-only*) echo "挂载模式     : read-only ✓（源镜像不会被改动）" ;;
+    *read-only*) echo "挂载模式     : read-only ✓（源镜像内容不会被写入）" ;;
     *) fail "挂载不是只读，为保护源镜像已中止 / not mounted read-only" ;;
 esac
+# macOS updates the backing file's mtime every time a disk image is attached,
+# even for a pure read-only mount. Content and size are unaffected — verify with
+# shasum if you want proof. This is documented so the mtime change is not alarming.
+# macOS 每次附加磁盘镜像都会更新源文件的 mtime，只读挂载也一样；内容与大小不变。
+echo "              注意：macOS 在 attach 时会更新源文件 mtime，属系统行为，内容不变"
 
 # ---------------------------------------------------------------------------
 # 2. Validate the game structure / 校验游戏结构
